@@ -1,0 +1,30 @@
+[project]
+name = "cautils"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Reto Gerber", email = "reto.gerber@uzh.ch" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "llvmlite==0.43",
+    "matplotlib>=3.9.2",
+    "numba==0.60.0",
+    "numpy==2.0.2",
+    "opencv-python>=4.10.0.84",
+    "polars>=1.14.0",
+    "scikit-fda>=0.9.1",
+    "scikit-image>=0.24.0",
+    "scipy>=1.14.1",
+]
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.3",
+]
