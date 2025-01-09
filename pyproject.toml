@@ -10,10 +10,12 @@ requires-python = ">=3.12"
 dependencies = [
     "llvmlite==0.43",
     "matplotlib>=3.9.2",
+    "mypy>=1.14.1",
     "numba==0.60.0",
     "numpy==2.0.2",
     "opencv-python>=4.10.0.84",
     "polars>=1.14.0",
+    "pydantic>=2.10.5",
     "scikit-fda>=0.9.1",
     "scikit-image>=0.24.0",
     "scipy>=1.14.1",
@@ -28,3 +30,11 @@ build-backend = "hatchling.build"
 dev = [
     "pytest>=8.3.3",
 ]
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["numpy.typing.mypy_plugin"]
+
+[[tool.mypy.overrides]]
+module = ["numba.*","scipy.*"]
+ignore_missing_imports = true
