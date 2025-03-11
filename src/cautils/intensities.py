@@ -1,10 +1,11 @@
 import skimage
 import numpy as np
+import numpy.typing as npt
 import scipy.ndimage
 import polars as pl
 
 
-def get_cell_intensities(img, mask, names, type = "mean"):
+def get_cell_intensities(img: npt.ArrayLike, mask: npt.ArrayLike, names: list[str], type: str = "mean") -> pl.DataFrame:
     assert img.shape[1:] == mask.shape
     assert img.ndim == 3
     if img.shape[0]==1 and isinstance(names, str):

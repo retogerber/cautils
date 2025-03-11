@@ -355,12 +355,16 @@ def to_euclid_coords(ind, inmat, tidn = None, scale=1):
     return cellroundimgall
 
 
-def get_subimg_all(ind, cellid, image, mask_all, mask_all_nuc, rmax=10, scale=1):
+def get_subimg_all(ind, cellid, image, mask_all, mask_all_nuc, rmax=10, scale=1, return_centroid=False):
     mask_nuc = mask_all_nuc[0,:,:].astype(int)
     centroidarr, bboxarr = bbox_centroids(mask_nuc)
 
     subimg, p0 = get_subimg(image, mask_all, mask_all_nuc, cellid, centroidarr[ind,:], bboxarr[ind,:], rmax=rmax, scale=scale)
     tbbox, tbboxti = create_bbox(p0, (rmax*2+1,rmax*2+1), subimg.shape)
     tsubimg = subimg[:,tbbox[0]:tbbox[2],tbbox[1]:tbbox[3]]
-    return tsubimg
+    if return_centroid:
+        p0 = p0 - np.array([tbbox[0],tbbox[1]])
+        return tsubimg, p0
+    else:
+        return tsubimg
 

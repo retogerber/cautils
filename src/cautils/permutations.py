@@ -1,10 +1,11 @@
 import numpy as np
+import numpy.typing as npt
 import numba
 import itertools
 
 
 @numba.jit(nopython=True, parallel=False, cache=False)
-def get_nuclei_boundary(resdmat, ch=-2, thr=1, maxdist = 3, offset=0):
+def get_nuclei_boundary(resdmat: npt.NDArray, ch:int=-2, thr:float=1, maxdist:int = 3, offset:int=0) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     nuclei_boundary_outer = np.zeros(resdmat.shape[1], dtype=np.uint8)
     nuclei_boundary_inner = np.zeros(resdmat.shape[1], dtype=np.uint8)
     for i in range(resdmat.shape[1]):
@@ -25,7 +26,7 @@ def get_nuclei_boundary(resdmat, ch=-2, thr=1, maxdist = 3, offset=0):
 
 # (resdmat[-2,:,:]==1).astype(int)
 @numba.jit(nopython=True, parallel=False, cache=False)
-def get_nuclei_sum_marker(resdmat, nuclei_boundary_inner, nuclei_boundary_outer):
+def get_nuclei_sum_marker(resdmat: npt.NDArray, nuclei_boundary_inner: npt.NDArray, nuclei_boundary_outer: npt.NDArray) -> np.ndarray:
     nuclei_marker_long = np.zeros((resdmat.shape[0]+1, resdmat.shape[1]))
     for i in range(resdmat.shape[1]):
         nuclei_marker_long[:-1,i] = np.sum(resdmat[:,i,nuclei_boundary_inner[i]:(nuclei_boundary_outer[i]+1)],axis=1)
@@ -34,7 +35,7 @@ def get_nuclei_sum_marker(resdmat, nuclei_boundary_inner, nuclei_boundary_outer)
     return nuclei_marker
 
 @numba.jit(nopython=True, parallel=False, cache=False)
-def subset_resdmat(resdmat, nuclei_boundary_outer, nuclei_boundary_max):
+def subset_resdmat(resdmat: npt.NDArray, nuclei_boundary_outer: npt.NDArray, nuclei_boundary_max: npt.NDArray) -> np.ndarray:
     maxdist = set(nuclei_boundary_max-nuclei_boundary_outer)
     assert len(maxdist)==1, "Not all values exist, reduce max distance!"
     maxdist = maxdist.pop()
@@ -43,7 +44,7 @@ def subset_resdmat(resdmat, nuclei_boundary_outer, nuclei_boundary_max):
         resdmat_sub[:,i,:] = resdmat[:,i,(nuclei_boundary_outer[i]+1):(nuclei_boundary_max[i]+1)]
     return resdmat_sub
 
-def get_combinations(indexes, return_array=False):
+def get_combinations(indexes: list[int], return_array: bool = False) -> np.ndarray:
     assert all(np.array(indexes)<254)
     combs = []
     for i in range(0,len(indexes)+1):
@@ -194,7 +195,7 @@ def get_combinations(indexes, return_array=False):
 #     return allowed_combinations
 
 @numba.jit(nopython=True, parallel=False, cache=False)
-def meshgrid_like(dmax,width):
+def meshgrid_like(dmax: int, width: int) -> np.ndarray:
     par_out = np.zeros((dmax**width,width), dtype=np.uint8)
     stepsizes = [dmax**i for i in range(width)]
     for i in range(par_out.shape[1]):
@@ -205,7 +206,7 @@ def meshgrid_like(dmax,width):
     return par_out
 
 @numba.jit(nopython=True, parallel=False, cache=False)
-def get_combinations_lx_filter(combs_arr, dmax):
+def get_combinations_lx_filter(combs_arr: npt.NDArray, dmax: int) -> np.ndarray:
     max_width = combs_arr.shape[1]//2-1
     width_ls = list(range(1,max_width+1))
     par_ls = [meshgrid_like(dmax, width) for width in width_ls]
@@ -261,7 +262,7 @@ def get_combinations_lx_filter(combs_arr, dmax):
 # permutations_arr = np.stack(np.meshgrid(*[list(range(combs_arr.shape[0])) for _ in range(dmax)])).swapaxes(0,dmax).reshape(-1,dmax)
 
 @numba.jit(nopython=True, parallel=False, cache=False)
-def calculate_single_distance_marker_sums(resdmat_sub, combs_arr, maxdist=3):
+def calculate_single_distance_marker_sums(resdmat_sub: npt.NDArray, combs_arr: npt.NDArray, maxdist: int = 3)-> np.ndarray:
     nind = int(resdmat_sub.shape[0])
     nls = np.zeros((combs_arr.shape[0], maxdist, resdmat_sub.shape[0]+1), dtype=np.float64)
     for i,co in enumerate(combs_arr):
@@ -272,7 +273,7 @@ def calculate_single_distance_marker_sums(resdmat_sub, combs_arr, maxdist=3):
     return nls
 
 @numba.jit(nopython=True, parallel=False, cache=False)
-def calculate_all_distance_marker_sums(resdmat_sub, allowed_combinations, nls, maxdist=3):
+def calculate_all_distance_marker_sums(resdmat_sub: npt.NDArray, allowed_combinations: npt.NDArray, nls: npt.NDArray, maxdist: int = 3) -> np.ndarray:
     lac = len(allowed_combinations)
     if allowed_combinations.shape[1]>2:
         nnls = np.zeros((lac, resdmat_sub.shape[0]+1))

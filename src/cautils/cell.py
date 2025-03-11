@@ -58,7 +58,9 @@ class RadialIntensity:
 
 
     def calculate_radial_intensities(self, experiment: Experiment, intensity: Intensity):
-        centroidarr, bboxarr = caucirc.bbox_centroids(experiment.mask)
+        centroidarr, bboxarr = caucirc.bbox_centroids(experiment.mask_nuc)
+        self.centroidarr = centroidarr
+        self.bboxarr = bboxarr
 
         mask_all = np.stack([experiment.mask, experiment.mask, experiment.mask], axis=0)
         mask_all_nuc = np.stack([experiment.mask_nuc, experiment.mask_nuc, experiment.mask_nuc], axis=0)
@@ -107,7 +109,7 @@ class Permutation:
             return np.diff(np.array([len(combs[ac]) for ac in acl]+[0]))*-1
         self.perm_mean_len_full = np.array([np.sum(np.arange(1,self.allowed_combinations[i].shape[0]+1) * len_per_layer(combs, self.allowed_combinations[i]) )/sum(len_per_layer(combs, self.allowed_combinations[i])) for i in range(len(self.allowed_combinations))])
 
-    def calculate_permutation(self, experiment: Experiment, radial_intensity: RadialIntensity, idx: int = 0, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None):
+    def calculate_permutation(self, experiment: Experiment, radial_intensity: RadialIntensity, idx: int = 0, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None) -> np.ndarray:
         if channelname is None:
             channelname = experiment.channelnames
         if not isinstance(channelname, list):
@@ -123,7 +125,7 @@ class Permutation:
         return cauperm.get_boundary_permutation_marker(radial_intensity.intensities[idx,chind,:,:], self.combs_arr, self.allowed_combinations_ls[abs(maxdist)-1], ch=-2, thr=1, maxdist=maxdist, normalize=normalize, offset=offset)
 
 
-    def calculate_permutation_distributions(self, experiment: Experiment, radial_intensity: RadialIntensity, intensity: Intensity, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None):
+    def calculate_permutation_distributions(self, experiment: Experiment, radial_intensity: RadialIntensity, intensity: Intensity, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None) -> tuple[np.ndarray, np.ndarray]:
         if isinstance(channelname, list):
             assert len(channelname)==1, "only a single channel can be specified"
         if channelname is None:
@@ -164,10 +166,10 @@ class Sample:
         self.perm_n_pixels_full = None
 
 
-    def get_cell_image(self, ind, rmax:int=12):
+    def get_cell_image(self, ind, rmax:int=12, return_centroid: bool = False):
         mask_all = np.stack([self.experiment.mask, self.experiment.mask, self.experiment.mask], axis=0)
         mask_all_nuc = np.stack([self.experiment.mask_nuc, self.experiment.mask_nuc, self.experiment.mask_nuc], axis=0)
-        return caucirc.get_subimg_all(ind, ind+1, self.experiment.image, mask_all, mask_all_nuc, rmax=rmax, scale=1)
+        return caucirc.get_subimg_all(ind, ind+1, self.experiment.image, mask_all, mask_all_nuc, rmax=rmax, scale=1, return_centroid=return_centroid)
 
     def calculate_cell_intensities(self, intensitytype = "mean"):
         self.intensity = Intensity(self.experiment, intensitytype=intensitytype)
@@ -176,14 +178,14 @@ class Sample:
         self.radial_intensity = RadialIntensity(rmax=rmax, nangles=nangles, scale=scale, resolution=self.experiment.resolution)
         self.radial_intensity.calculate_radial_intensities(self.experiment, self.intensity)
 
-    def setup_permutation(self, dmax: int = 3):
+    def prepare_permutation(self, dmax: int = 3):
         self.permutation = Permutation(nangles=self.radial_intensity.nangles, dmax=dmax)
 
-    def calculate_permutation(self, idx: int = 0, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None):
-        self.permutation.calculate_permutation(experiment=self.experiment, radial_intensity=self.radial_intensity, idx=idx, channelname=channelname, normalize=normalize, offset=offset, maxdist=maxdist)
+    def calculate_permutation(self, idx: int = 0, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None) -> np.ndarray:
+        return self.permutation.calculate_permutation(experiment=self.experiment, radial_intensity=self.radial_intensity, idx=idx, channelname=channelname, normalize=normalize, offset=offset, maxdist=maxdist)
 
-    def calculate_permutation_distributions(self, channelname: None | str = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None):
-        self.permutation.calculate_permutation_distributions(self.experiment, self.radial_intensity, self.intensity, channelname=channelname, normalize=normalize, offset=offset, maxdist=maxdist)
+    def calculate_permutation_distributions(self, channelname: None | str = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None) -> tuple[np.ndarray, np.ndarray]:
+        return self.permutation.calculate_permutation_distributions(self.experiment, self.radial_intensity, self.intensity, channelname=channelname, normalize=normalize, offset=offset, maxdist=maxdist)
     
 #     def plot_cell(self, cellind: int, channelname: str, offset: int = 0, extra=False):
 #         from sklearn.preprocessing import SplineTransformer
@@ -246,38 +248,40 @@ class Sample:
 
 
 
-# if __name__ == "__main__":
-#     import tifffile
-#     # read omexml, for channelnames only
-#     imgpath_imc = "/home/retger/Nextcloud/Projects/celltyping_imc/IMC-IF/ROI001_035_PS15.19650-B3/registered_IMC/registered_IMC.ome.tiff"
-#     from ome_types import from_tiff
-#     ome = from_tiff(imgpath_imc)
-#     channelnames=np.array([x.name for x in ome.images[0].pixels.channels])
-#     tb = np.array([ch in np.array(list(channelnames[:1]) + list(channelnames[8:-2])) for ch in channelnames])
-#     channelnames = channelnames[tb]
-#     channelnames[np.argmax(channelnames=="DNA")] = "DNA1"
-#     channelnames[np.argmax(channelnames=="DNA")] = "DNA2"
-#     channelnames[np.argmax(channelnames=="CD14")] = "CD14_1"
-#     channelnames[np.argmax(channelnames=="CD14")] = "CD14_2"
-#     part=6
-#     mask_path = f"/home/retger/Nextcloud/Projects/celltyping_imc/IMC-IF/ROI001_035_PS15.19650-B3/IMC_mask/mask_whole_{part}.tiff"
-#     mask_nuc_path = f"/home/retger/Nextcloud/Projects/celltyping_imc/IMC-IF/ROI001_035_PS15.19650-B3/IMC_mask/mask_nuc_{part}.tiff"
-#     image_path = f"/home/retger/Nextcloud/Projects/celltyping_imc/IMC-IF/ROI001_035_PS15.19650-B3/IMC/imc_{part}.tiff"
+if __name__ == "__main__":
+    import tifffile
+    # read omexml, for channelnames only
+    imgpath_imc = "/home/retger/Nextcloud/Projects/celltyping_imc/IMC-IF/ROI001_035_PS15.19650-B3/registered_IMC/registered_IMC.ome.tiff"
+    from ome_types import from_tiff
+    ome = from_tiff(imgpath_imc)
+    channelnames=np.array([x.name for x in ome.images[0].pixels.channels])
+    tb = np.array([ch in np.array(list(channelnames[:1]) + list(channelnames[8:-2])) for ch in channelnames])
+    channelnames = channelnames[tb]
+    channelnames[np.argmax(channelnames=="DNA")] = "DNA1"
+    channelnames[np.argmax(channelnames=="DNA")] = "DNA2"
+    channelnames[np.argmax(channelnames=="CD14")] = "CD14_1"
+    channelnames[np.argmax(channelnames=="CD14")] = "CD14_2"
+    part=6
+    mask_path = f"/home/retger/Nextcloud/Projects/celltyping_imc/IMC-IF/ROI001_035_PS15.19650-B3/IMC_mask/mask_whole_{part}.tiff"
+    mask_nuc_path = f"/home/retger/Nextcloud/Projects/celltyping_imc/IMC-IF/ROI001_035_PS15.19650-B3/IMC_mask/mask_nuc_{part}.tiff"
+    image_path = f"/home/retger/Nextcloud/Projects/celltyping_imc/IMC-IF/ROI001_035_PS15.19650-B3/IMC/imc_{part}.tiff"
 
-#     # Read the TIFF file
-#     image = tifffile.imread(image_path)
-#     image = image[tb,:,:]
-#     mask_all = tifffile.imread(mask_path)[[0,2,3],:,:]
-#     mask = mask_all[0,:,:].astype(int)
-#     mask_all_nuc = tifffile.imread(mask_nuc_path)[[0,2,3],:,:]
-#     mask_nuc = mask_all_nuc[0,:,:].astype(int)
+    # Read the TIFF file
+    image = tifffile.imread(image_path)
+    image = image[tb,:,:]
+    mask_all = tifffile.imread(mask_path)[[0,2,3],:,:]
+    mask = mask_all[0,:,:].astype(int)
+    mask_all_nuc = tifffile.imread(mask_nuc_path)[[0,2,3],:,:]
+    mask_nuc = mask_all_nuc[0,:,:].astype(int)
 
-#     sa = Sample(image, mask, mask, list(channelnames))
-#     # # sa = Sample(image, mask, mask_nuc, channelnames)
+    sa = Sample(image, mask, mask, list(channelnames))
+    # # sa = Sample(image, mask, mask_nuc, channelnames)
 
-#     sa.calculate_cell_intensities()
-#     sa.create_kernel_list(rmax=14)
-#     sa.calculate_radial_intensities()
+    sa.calculate_cell_intensities()
+    sa.calculate_radial_intensities()
+    sa.prepare_permutation(dmax=3)
+    sa.calculate_permutation(0, "CD14_1")
+    sa.calculate_permutation_distributions("CD14_1")
 #     sa.create_permutation_template()
 #     sa.calculate_permutation_template_stats()
 #     perm = sa.calculate_permutation(2)
