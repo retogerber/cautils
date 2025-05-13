@@ -282,7 +282,7 @@ G_and_H_numba_serial = numba.jit(G_and_H_numba.py_func, nopython=True, parallel=
 # G,H,_ = G_and_H_numba(x)
 # G,H,_ = G_and_H_numba_serial(x)
 
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def G_and_H(x, parallel=None, connectivity=CONNECTIVITY_QUEEN):
     if parallel is None:
         if numba.get_num_threads() > 1 and x.size > 5000:
