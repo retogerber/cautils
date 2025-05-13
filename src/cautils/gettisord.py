@@ -5,7 +5,7 @@ import scipy
 CONNECTIVITY_ROOK = 1
 CONNECTIVITY_QUEEN = 2
 
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def meshgrid_2D(x, y):
     """
     Create a meshgrid for 2D arrays.
@@ -23,7 +23,7 @@ def meshgrid_2D(x, y):
             yy[i,j] = y[j]
     return yy, xx
 
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def get_offset_indices(d: int = 1) -> np.ndarray:
     """
     Get the offset indices for a 2D grid.
@@ -55,7 +55,7 @@ def get_offset_indices(d: int = 1) -> np.ndarray:
     return offset_indices
 # get_offset_indices(1)
 
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def weight_from_dims(n1, n2, wrap1=False,wrap2=False, offset_indices=None) -> np.ndarray:
     """
     Create a weight matrix for a 2D grid.
@@ -92,11 +92,11 @@ def weight_from_dims(n1, n2, wrap1=False,wrap2=False, offset_indices=None) -> np
                 # print(W[0,:].reshape(n1,n2))
     return W
 
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def subset_weights(W, to_keep):
     return W[to_keep][:, to_keep]
 
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def compute_G(x,W):
     """
     Compute G statistic for a 2D grid.
@@ -116,7 +116,7 @@ def compute_G(x,W):
     return nume/den
 
 
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def compute_coefficients(n, S1, S2, W2):
     B0 = (n**2 - 3*n + 3)*S1 - n*S2 + 3*W2
     B1 = -((n**2 - n)*S1 - 2*n*S2 + 3*W2)
@@ -125,11 +125,11 @@ def compute_coefficients(n, S1, S2, W2):
     B4 = S1 - S2 + W2
     return B0, B1, B2, B3, B4
 
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def compute_S1(Wmat):
     return np.sum((Wmat+Wmat.T)**2)/2
 
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def compute_S2(Wmat):
     # np.sum((np.sum(Wmat,axis=0)+np.sum(Wmat,axis=1))**2)
     S2 = 0
@@ -137,7 +137,7 @@ def compute_S2(Wmat):
         S2 += (np.sum(Wmat[i,:]) + np.sum(Wmat[:,i]))**2
     return S2
 
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def compute_ms(x):
     m1 = 0
     m2 = 0
@@ -226,7 +226,7 @@ def compute_Hi(x,W):
 
 # x = np.random.rand(100,100)
 
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def man_pad(x):
     xm = np.empty((x.shape[0]+2,x.shape[1]+2), dtype=x.dtype)
     xm[1:-1,1:-1] = x
@@ -240,7 +240,7 @@ def man_pad(x):
     xm[-1,-1] = x[-1,-1]
     return xm
 
-@numba.jit(nopython=True, parallel=True, cache=False)
+@numba.jit(nopython=True, parallel=True, cache=True)
 def G_and_H_numba(x, connectivity=CONNECTIVITY_QUEEN):
     n=np.float64((x.shape[0]*x.shape[1]))
     x_sum = np.float64(np.sum(x))
@@ -276,13 +276,13 @@ def G_and_H_numba(x, connectivity=CONNECTIVITY_QUEEN):
     VarHi = 1/(n - 1) * (1/denom)**2 * (h2 - h1**2) * ((n * w2) - (w1**2))
     HZi = (2*xresidm / denom)/VarHi
     return GZi, HZi, VarHi
-G_and_H_numba_serial = numba.jit(G_and_H_numba.py_func, nopython=True, parallel=False, cache=False)
+G_and_H_numba_serial = numba.jit(G_and_H_numba.py_func, nopython=True, parallel=False, cache=True)
 
 # x = np.random.rand(100,100)
 # G,H,_ = G_and_H_numba(x)
 # G,H,_ = G_and_H_numba_serial(x)
 
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def G_and_H(x, parallel=None, connectivity=CONNECTIVITY_QUEEN):
     if parallel is None:
         if numba.get_num_threads() > 1 and x.size > 5000:
