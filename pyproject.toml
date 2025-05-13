@@ -11,7 +11,7 @@ dependencies = [
     "llvmlite==0.43",
     "matplotlib>=3.9.2",
     "mypy>=1.14.1",
-    "numba==0.60.0",
+    "numba>=0.60.0",
     "numpy>=1.26",
     "ome-types>=0.5.3",
     "opencv-python>=4.10.0.84",
