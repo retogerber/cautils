@@ -207,8 +207,10 @@ def meshgrid_like(dmax: int, width: int) -> np.ndarray:
 
 @numba.jit(nopython=True, parallel=False, cache=False)
 def get_combinations_lx_filter(combs_arr: npt.NDArray, dmax: int) -> np.ndarray:
+    # maximum width of permutation (less than half of the number of angles)
     max_width = combs_arr.shape[1]//2-1
     width_ls = list(range(1,max_width+1))
+    # all single layer possible combinations
     par_ls = [meshgrid_like(dmax, width) for width in width_ls]
     lens = [par.shape[0]*combs_arr.shape[1] for par in par_ls]
     total_len = sum(lens)
@@ -240,25 +242,10 @@ def get_combinations_lx_filter(combs_arr: npt.NDArray, dmax: int) -> np.ndarray:
     return  allowed_combinations_arr
 
 # nangles = 8
-# dmax=2
+# dmax=6
 # combs_arr = get_combinations(list(range(nangles)), return_array=True)
-# out = get_combinations_lx_filter(combs_arr, dmax)
+# allowed_combinations = get_combinations_lx_filter(combs_arr, dmax)
 # len(out)
-
-# #7
-# 15
-# 43
-# 85
-# 141
-# 211
-
-# # 8
-# 25
-# 105
-# 273
-# 561
-
-
 # permutations_arr = np.stack(np.meshgrid(*[list(range(combs_arr.shape[0])) for _ in range(dmax)])).swapaxes(0,dmax).reshape(-1,dmax)
 
 @numba.jit(nopython=True, parallel=False, cache=False)
@@ -346,8 +333,8 @@ def get_boundary_permutation_marker(resdmat, combs_arr, allowed_combinations, ch
         resdmat_sub = subset_resdmat(resdmat, nuclei_boundary_outer_red, nuclei_boundary_outer)
     else:
         resdmat_sub = subset_resdmat(resdmat, nuclei_boundary_outer, nuclei_boundary_max)
-    nls = calculate_single_distance_marker_sums(resdmat_sub, combs_arr)
-    nnls = calculate_all_distance_marker_sums(resdmat_sub, allowed_combinations, nls)
+    nls = calculate_single_distance_marker_sums(resdmat_sub, combs_arr, maxdist)
+    nnls = calculate_all_distance_marker_sums(resdmat_sub, allowed_combinations, nls, maxdist)
     if normalize=="all":
         nuclei_marker = get_nuclei_sum_marker(resdmat, nuclei_boundary_inner, nuclei_boundary_outer)
         return normalize_marker(nnls, nuclei_marker, "all", invert=maxdist<0)

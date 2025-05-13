@@ -12,7 +12,8 @@ dependencies = [
     "matplotlib>=3.9.2",
     "mypy>=1.14.1",
     "numba==0.60.0",
-    "numpy==2.0.2",
+    "numpy>=1.26",
+    "ome-types>=0.5.3",
     "opencv-python>=4.10.0.84",
     "polars>=1.14.0",
     "pydantic>=2.10.5",
@@ -30,6 +31,9 @@ build-backend = "hatchling.build"
 dev = [
     "pytest>=8.3.3",
 ]
+
+[tool.uv]
+package = true
 
 [tool.mypy]
 python_version = "3.12"
