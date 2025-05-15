@@ -44,7 +44,7 @@ def in_approx_cone(pt: np.ndarray[np.float64], r: np.float64, phi: np.float64, e
 
 #     return b1 and b2 and b3 and b4 and b5 and b6
 
-@njit(cache=True, parallel=True)
+@njit(cache=True)
 def create_kernel(tis: np.ndarray[np.float64], r: np.float64, phi: np.float64, epsphi: np.float64) -> np.ndarray[np.bool_]:
     p1 = np.array([tis[0]//2,tis[1]//2])
     ti = np.zeros(tis, dtype=numba.boolean)
@@ -54,7 +54,7 @@ def create_kernel(tis: np.ndarray[np.float64], r: np.float64, phi: np.float64, e
     return ti
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True)
 def create_kernel_list(tis: np.ndarray[np.float64], rs: np.float64, phis: np.float64, epsphi: np.float64):
     tils = list()
     for i in range(len(phis)):
@@ -210,12 +210,15 @@ def calculate_radial_intensities(subimg, tidn, rs, phis, p0):
     for i in range(resmat.shape[0]):
         for j in range(resmat.shape[1]):
             resmat[i,j,:] = np.cumsum(resdmat[i,j,:])
-    resdmat /= np.clip(nmat, a_min=1, a_max=None)
+    tmpnmat = np.clip(nmat, a_min=1, a_max=None)
+    for i in range(resdmat.shape[0]):
+        resdmat[i,:,:] = resdmat[i,:,:] / tmpnmat
     nmatc = np.zeros(nmat.shape, dtype=np.int64)
     for i in range(nmat.shape[0]):
         nmatc[i,:] = np.cumsum(nmat[i,:])
     nmatc = np.clip(nmatc, a_min=1, a_max=None)
-    resmat /= nmatc
+    for i in range(resmat.shape[0]):
+        resmat[i,:,:] = resmat[i,:,:] / nmatc
     return resmat, resdmat
 
 @njit(cache=True)
