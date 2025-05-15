@@ -5,15 +5,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # https://totologic.blogspot.com/2014/01/accurate-point-in-triangle-test.html
-@njit
+@njit(cache=True)
 def side(x1:  np.float64, y1:  np.float64, x2:  np.float64, y2:  np.float64, x:  np.float64, y:  np.float64) ->  np.float64:
     return (y2 - y1)*(x - x1) + (-x2 + x1)*(y - y1)
 
-@njit
+@njit(cache=True)
 def circle(phi: np.float64) -> np.ndarray[np.float64]:
     return np.array([np.cos(phi), np.sin(phi)])
 
-@njit
+@njit(cache=True)
 def in_approx_cone(pt: np.ndarray[np.float64], r: np.float64, phi: np.float64, epsphi: np.float64, p1: np.ndarray[np.float64] = np.array([0.0,0.0]),eps: np.float64 = 1e-6) -> bool:
     p2 = r*circle(phi+epsphi-eps)+p1
     p3 = r*circle(phi)+p1
@@ -44,7 +44,7 @@ def in_approx_cone(pt: np.ndarray[np.float64], r: np.float64, phi: np.float64, e
 
 #     return b1 and b2 and b3 and b4 and b5 and b6
 
-@njit
+@njit(cache=True, parrallel=True)
 def create_kernel(tis: np.ndarray[np.float64], r: np.float64, phi: np.float64, epsphi: np.float64) -> np.ndarray[np.bool_]:
     p1 = np.array([tis[0]//2,tis[1]//2])
     ti = np.zeros(tis, dtype=numba.boolean)
@@ -54,7 +54,7 @@ def create_kernel(tis: np.ndarray[np.float64], r: np.float64, phi: np.float64, e
     return ti
 
 
-@njit
+@njit(cache=True, parallel=True)
 def create_kernel_list(tis: np.ndarray[np.float64], rs: np.float64, phis: np.float64, epsphi: np.float64):
     tils = list()
     for i in range(len(phis)):
@@ -63,7 +63,7 @@ def create_kernel_list(tis: np.ndarray[np.float64], rs: np.float64, phis: np.flo
             tils.append(ti)
     return tils
 
-@njit
+@njit(cache=True)
 def create_kernel_diff_list(tils):
     tidls = list()
     tidls.append(np.zeros(tils[0].shape, dtype=numba.boolean))
@@ -72,7 +72,7 @@ def create_kernel_diff_list(tils):
     del tidls[0]
     return tidls
 
-@njit
+@njit(cache=True)
 def create_bbox(p0, sh, imgsh):
     p0r = np.round(p0).astype(np.uint)
     # to relative coordinates (compared to img)
@@ -99,7 +99,7 @@ def create_bbox(p0, sh, imgsh):
     return img_bbox, kernel_bbox
 
 
-@njit
+@njit(cache=True)
 def get_subimg_part(image, mask, mask_nuc, cellid, cellbbox, cellcentroid, rmax=10):
     bbox = cellbbox
     bbox[0]-=rmax
@@ -156,7 +156,7 @@ def scale_subimg(subimg, p0, scale=1, nch_nn=6):
         return subimg, p0
 
 
-@njit
+@njit(cache=True, parallel=True)
 def bbox_centroids(mask):
     maxval = int(np.max(mask)+1)
     centroids = np.zeros((maxval,3), dtype=float)
@@ -188,7 +188,7 @@ def get_subimg(image, mask, mask_nuc, cellid, cellcentroid, cellbbox, rmax=10, s
     subimg, p0 = scale_subimg(subimg, p0, scale=scale)
     return subimg, p0
 
-@njit
+@njit(cache=True, parallel=True)
 def calculate_radial_intensities(subimg, tidn, rs, phis, p0):
     img_bbox, kernel_bbox = create_bbox(p0, tidn.shape, subimg.shape)
 
@@ -218,7 +218,7 @@ def calculate_radial_intensities(subimg, tidn, rs, phis, p0):
     resmat /= nmatc
     return resmat, resdmat
 
-@njit
+@njit(cache=True)
 def nuclei_only_radial_intensities(resdmat, ch=-2, minp=1, thr=1):
     nuclei_boundary = np.zeros(resdmat.shape[1], dtype=np.int64)
     for i in range(resdmat.shape[1]):
@@ -228,7 +228,7 @@ def nuclei_only_radial_intensities(resdmat, ch=-2, minp=1, thr=1):
         resdmatout[:,i,(nuclei_boundary[i]+1):] = 0
     return resdmatout
 
-@njit
+@njit(cache=True)
 def cytoplasma_only_radial_intensities(resdmat, ch1=-2, ch2=-5, minp=1, thr=1):
     nuclei_boundary = np.zeros(resdmat.shape[1], dtype=np.int64)
     for i in range(resdmat.shape[1]):
@@ -244,7 +244,7 @@ def cytoplasma_only_radial_intensities(resdmat, ch1=-2, ch2=-5, minp=1, thr=1):
             resdmatc[:,i,:(cell_boundary[i]-nuclei_boundary[i])] = resdmat[:,i,nuclei_boundary[i]+1:cell_boundary[i]+1]
     return resdmatc
 
-@njit
+@njit(cache=True)
 def nocell_radial_intensities(resdmat, ch=-5, minp=1, thr=1):
     cell_boundary = np.zeros(resdmat.shape[1], dtype=np.int64)
     for i in range(resdmat.shape[1]):
@@ -256,7 +256,7 @@ def nocell_radial_intensities(resdmat, ch=-5, minp=1, thr=1):
     return resdmatc
 
 
-@njit
+@njit(cache=True)
 def interp_weight(x, a=-0.5):
     if x < 1:
         return 1-(a+3)*x**2 + (a+2)*x**3
@@ -270,7 +270,7 @@ def interp_weight(x, a=-0.5):
         return 0
 
 
-@njit
+@njit(cache=True)
 def resize_1d(fp, extent):
     yp = np.arange(extent)
     xp = np.linspace(0, extent-1, num=len(fp))
@@ -285,7 +285,7 @@ def resize_1d(fp, extent):
             ip[i] = np.sum(fp*ws)
         return ip
 
-@njit
+@njit(cache=True)
 def scale_cell_boundary(resdmatacelli, extent, ch=-5, invert=False, ch_to_fill = np.array([-6,-5,-3,-2])):
     # resdmatacelli = resdmata[i,:,:,:].copy()
     # resdmatacelli[ch,:,:]
@@ -308,7 +308,7 @@ def scale_cell_boundary(resdmatacelli, extent, ch=-5, invert=False, ch_to_fill =
                 outm[j,i,:] = resize_1d(resdmatacelli[j,i,cmis[i]:cms[i]],  extent)
     return outm
 
-@njit
+@njit(cache=True)
 def scale_cell_boundary_all(resdmata, extent, ch=-5, invert=False, ch_to_fill = np.array([-6,-5,-3,-2])):
     # resdmata = inncc.copy()
     resdmataout = np.zeros((resdmata.shape[0],resdmata.shape[1],resdmata.shape[2],extent), dtype=np.float64)
