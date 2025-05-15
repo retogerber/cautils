@@ -44,7 +44,7 @@ def in_approx_cone(pt: np.ndarray[np.float64], r: np.float64, phi: np.float64, e
 
 #     return b1 and b2 and b3 and b4 and b5 and b6
 
-@njit(cache=True, parrallel=True)
+@njit(cache=True, parallel=True)
 def create_kernel(tis: np.ndarray[np.float64], r: np.float64, phi: np.float64, epsphi: np.float64) -> np.ndarray[np.bool_]:
     p1 = np.array([tis[0]//2,tis[1]//2])
     ti = np.zeros(tis, dtype=numba.boolean)
