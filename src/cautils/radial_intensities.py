@@ -156,7 +156,7 @@ def scale_subimg(subimg, p0, scale=1, nch_nn=6):
         return subimg, p0
 
 
-@njit(cache=True, parallel=True)
+@njit(cache=True)
 def bbox_centroids(mask):
     maxval = int(np.max(mask)+1)
     centroids = np.zeros((maxval,3), dtype=float)
@@ -188,7 +188,7 @@ def get_subimg(image, mask, mask_nuc, cellid, cellcentroid, cellbbox, rmax=10, s
     subimg, p0 = scale_subimg(subimg, p0, scale=scale)
     return subimg, p0
 
-@njit(cache=True, parallel=True)
+@njit(cache=True)
 def calculate_radial_intensities(subimg, tidn, rs, phis, p0):
     img_bbox, kernel_bbox = create_bbox(p0, tidn.shape, subimg.shape)
 
