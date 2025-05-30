@@ -315,22 +315,17 @@ def G_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True):
         xns = (xp[1:-1,1:-1] + xp[:-2,1:-1]+xp[1:-1,:-2]+xp[2:,1:-1]+xp[1:-1,2:]+xp[:-2,:-2]+xp[:-2,2:]+xp[2:,:-2]+xp[2:,2:])
     else:
         xns = (xp[1:-1,1:-1] + xp[:-2,1:-1]+xp[1:-1,:-2]+xp[2:,1:-1]+xp[1:-1,2:])
-    Gi = xns/x_sum
 
     if normalize:
         w1 = 4*connectivity + 1
-        n = np.float64((x.shape[0]*x.shape[1]))
-        # x2_sum = np.float64(np.sum(x**2))
-        Yi1 = x_sum/n
-        x2_sum = np.dot(x, x.T).sum()
-        Yi2 = x2_sum/n-Yi1**2
+        n = np.float64(x.size)
+        x_mean = x_sum / n
+        x2_sum = np.sum(x**2)
+        s2 = x2_sum/n-x_mean**2
 
-        Ei=w1/n
-        V_i = (w1*(n-w1)*Yi2)/(n**2*(n-1)*Yi1**2)
-        GZi = (Gi-Ei)/np.sqrt(V_i)
-        return GZi
+        return (xns-x_mean*w1)/np.sqrt(s2*((n*(n*w1) - w1**2)/(n-1)))
     else:
-        return Gi
+        return xns/x_sum
 
 # G(x, connectivity=CONNECTIVITY_QUEEN, normalize=True)
 
@@ -510,10 +505,11 @@ def H_permutation(x, connectivity=CONNECTIVITY_QUEEN, n_iter = 99, seed=42):
                     jp = j+1
                     xresidr_init_replacement_array[ii,jj] = (xrp_test[ip,jp] - xrnm_init_replacement_array[ii,jj])**2
 
-            # pad for boundaries
-            xresidr_init_replacement_array = man_pad(xresidr_init_replacement_array)
             # update the denominator, remove initial partial sum and add the new partial sum, and calculate the mean
             denomr = (denomr_sum_init - xresidr_init_initsubarray_sum + np.sum(xresidr_init_replacement_array)*w1)/n
+
+            # pad for boundaries
+            xresidr_init_replacement_array = man_pad(xresidr_init_replacement_array)
 
             # calculate Hi for the replacement, xstart_offset and ystart_offset are for the boundaries
             if connectivity == CONNECTIVITY_QUEEN:
