@@ -323,7 +323,7 @@ def G_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True):
         x2_sum = np.sum(x**2)
         s2 = x2_sum/n-x_mean**2
 
-        return (xns-x_mean*w1)/np.sqrt(s2*((n*(n*w1) - w1**2)/(n-1)))
+        return (xns-x_mean*w1)/np.sqrt(s2*((n*w1 - w1**2)/(n-1)))
     else:
         return xns/x_sum
 
