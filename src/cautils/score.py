@@ -80,11 +80,11 @@ def calculate_score(image, mask, channelnames=None, fdr_control=True):
                 f"{channelnames[i]}_GP_MEAN": features2["MEAN"]*1e-6,
                 f"{channelnames[i]}_GP_SUM": features2["INTEGRATED_INTENSITY"]*1e-6,
                 f"{channelnames[i]}_GP_EDGE_MEAN": features2["EDGE_MEAN_INTENSITY"]*1e-6,
-                f"{channelnames[i]}_GP_CORE_MEAN": (features2["INTEGRATED_INTENSITY"]-(features2["EDGE_MEAN_INTENSITY"]*features2["PERIMETER"])) / features2["AREA_PIXELS_COUNT"]*1e-6,
+                f"{channelnames[i]}_GP_CORE_MEAN": (features2["INTEGRATED_INTENSITY"]*1e-6-(features2["EDGE_MEAN_INTENSITY"]*1e-6*features2["PERIMETER"])) / features2["AREA_PIXELS_COUNT"],
                 f"{channelnames[i]}_GPhot_MEAN": features3["MEAN"]*1e-6,
                 f"{channelnames[i]}_GPhot_SUM": features3["INTEGRATED_INTENSITY"]*1e-6,
                 f"{channelnames[i]}_GPhot_EDGE_MEAN": features3["EDGE_MEAN_INTENSITY"]*1e-6,
-                f"{channelnames[i]}_GPhot_CORE_MEAN": (features3["INTEGRATED_INTENSITY"]-(features3["EDGE_MEAN_INTENSITY"]*features3["PERIMETER"])) / features3["AREA_PIXELS_COUNT"]*1e-6,
+                f"{channelnames[i]}_GPhot_CORE_MEAN": (features3["INTEGRATED_INTENSITY"]*1e-6-(features3["EDGE_MEAN_INTENSITY"]*1e-6*features3["PERIMETER"])) / features3["AREA_PIXELS_COUNT"],
         })
         if df is None:
             df = featuresdf
