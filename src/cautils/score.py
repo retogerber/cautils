@@ -63,7 +63,7 @@ def calculate_score(image, mask, channelnames=None, fdr_control=True):
         for chind in range(3):
             image_GP[chind,:,:] = scipy.stats.false_discovery_control(image_GP[chind,:,:])
 
-    nyx = Nyxus(["MEAN","EDGE_MEAN_INTENSITY","AREA_PIXELS_COUNT","INTEGRATED_INTENSITY","PERIMETER"], n_feature_calc_threads=16 )
+    nyx = Nyxus(["MEAN","EDGE_MEAN_INTENSITY","AREA_PIXELS_COUNT","PERIMETER"], n_feature_calc_threads=16 )
     df = None
     for i in range(len(channelnames)):
         features1 = nyx.featurize(image[i,:,:], mask, [channelnames[i]])
@@ -74,17 +74,17 @@ def calculate_score(image, mask, channelnames=None, fdr_control=True):
                 f"{channelnames[i]}_AREA": features1["AREA_PIXELS_COUNT"],
                 f"{channelnames[i]}_PERIMETER": features1["PERIMETER"],
                 f"{channelnames[i]}_MEAN": features1["MEAN"],
-                f"{channelnames[i]}_SUM": features1["INTEGRATED_INTENSITY"],
+                f"{channelnames[i]}_SUM": features1["MEAN"]* features1["AREA_PIXELS_COUNT"],
                 f"{channelnames[i]}_EDGE_MEAN": features1["EDGE_MEAN_INTENSITY"],
-                f"{channelnames[i]}_CORE_MEAN": (features1["INTEGRATED_INTENSITY"]-(features1["EDGE_MEAN_INTENSITY"]*features1["PERIMETER"])) / features1["AREA_PIXELS_COUNT"],
+                f"{channelnames[i]}_CORE_MEAN": (features1["MEAN"]* features1["AREA_PIXELS_COUNT"]-(features1["EDGE_MEAN_INTENSITY"]*features1["PERIMETER"])) / features1["AREA_PIXELS_COUNT"],
                 f"{channelnames[i]}_GP_MEAN": features2["MEAN"]*1e-6,
-                f"{channelnames[i]}_GP_SUM": features2["INTEGRATED_INTENSITY"]*1e-6,
+                f"{channelnames[i]}_GP_SUM": features2["MEAN"]* features2["AREA_PIXELS_COUNT"]*1e-6,
                 f"{channelnames[i]}_GP_EDGE_MEAN": features2["EDGE_MEAN_INTENSITY"]*1e-6,
-                f"{channelnames[i]}_GP_CORE_MEAN": (features2["INTEGRATED_INTENSITY"]*1e-6-(features2["EDGE_MEAN_INTENSITY"]*1e-6*features2["PERIMETER"])) / features2["AREA_PIXELS_COUNT"],
+                f"{channelnames[i]}_GP_CORE_MEAN": (features2["MEAN"]* features2["AREA_PIXELS_COUNT"]*1e-6-(features2["EDGE_MEAN_INTENSITY"]*1e-6*features2["PERIMETER"])) / features2["AREA_PIXELS_COUNT"],
                 f"{channelnames[i]}_GPhot_MEAN": features3["MEAN"]*1e-6,
-                f"{channelnames[i]}_GPhot_SUM": features3["INTEGRATED_INTENSITY"]*1e-6,
+                f"{channelnames[i]}_GPhot_SUM": features3["MEAN"]* features3["AREA_PIXELS_COUNT"]*1e-6,
                 f"{channelnames[i]}_GPhot_EDGE_MEAN": features3["EDGE_MEAN_INTENSITY"]*1e-6,
-                f"{channelnames[i]}_GPhot_CORE_MEAN": (features3["INTEGRATED_INTENSITY"]*1e-6-(features3["EDGE_MEAN_INTENSITY"]*1e-6*features3["PERIMETER"])) / features3["AREA_PIXELS_COUNT"],
+                f"{channelnames[i]}_GPhot_CORE_MEAN": (features3["MEAN"]* features3["AREA_PIXELS_COUNT"]*1e-6-(features3["EDGE_MEAN_INTENSITY"]*1e-6*features3["PERIMETER"])) / features3["AREA_PIXELS_COUNT"],
         })
         if df is None:
             df = featuresdf
