@@ -39,7 +39,7 @@ def get_score(x,y):
     y_new = 1-y_new/y_new.max()
     return y_new
 
-def calculate_score(image, mask, channelnames=None):
+def calculate_score(image, mask, channelnames=None, fdr_control=True):
     assert image.ndim == 3, "Image must be a 3D numpy array (channels, height, width)"
     assert mask.ndim == 2, "Mask must be a 2D numpy array (height, width)"
     assert image.shape[1:] == mask.shape, "Image and mask dimensions must match"
@@ -54,12 +54,21 @@ def calculate_score(image, mask, channelnames=None):
         GZi, GP = G(image[chind,:,:].astype(float), n_iter=0)
         image_G[chind,:,:] = GZi
         image_GP[chind,:,:] = GP
+    image_GP_hot = 1-image_GP.copy()/2
+    image_GP_hot[image_G<0] = 0.5+(0.5-image_GP_hot[image_G<0])
+    image_GP_hot = 1-image_GP_hot
+    if fdr_control:
+        for chind in range(3):
+            image_GP_hot[chind,:,:] = scipy.stats.false_discovery_control(image_GP_hot[chind,:,:])
+        for chind in range(3):
+            image_GP[chind,:,:] = scipy.stats.false_discovery_control(image_GP[chind,:,:])
 
     nyx = Nyxus(["MEAN","EDGE_MEAN_INTENSITY","AREA_PIXELS_COUNT","INTEGRATED_INTENSITY","PERIMETER"], n_feature_calc_threads=16 )
     df = None
     for i in range(len(channelnames)):
         features1 = nyx.featurize(image[i,:,:], mask, [channelnames[i]])
         features2 = nyx.featurize(image_GP[i,:,:]*1e6, mask, [channelnames[i]])
+        features3 = nyx.featurize(image_GP_hot[i,:,:]*1e6, mask, [channelnames[i]])
         featuresdf = pl.DataFrame({
                 "ObjectNumber": features1["ROI_label"].astype(np.int64),
                 f"{channelnames[i]}_AREA": features1["AREA_PIXELS_COUNT"],
@@ -72,6 +81,10 @@ def calculate_score(image, mask, channelnames=None):
                 f"{channelnames[i]}_GP_SUM": features2["INTEGRATED_INTENSITY"]*1e-6,
                 f"{channelnames[i]}_GP_EDGE_MEAN": features2["EDGE_MEAN_INTENSITY"]*1e-6,
                 f"{channelnames[i]}_GP_CORE_MEAN": (features2["INTEGRATED_INTENSITY"]-(features2["EDGE_MEAN_INTENSITY"]*features2["PERIMETER"])) / features2["AREA_PIXELS_COUNT"]*1e-6,
+                f"{channelnames[i]}_GPhot_MEAN": features3["MEAN"]*1e-6,
+                f"{channelnames[i]}_GPhot_SUM": features3["INTEGRATED_INTENSITY"]*1e-6,
+                f"{channelnames[i]}_GPhot_EDGE_MEAN": features3["EDGE_MEAN_INTENSITY"]*1e-6,
+                f"{channelnames[i]}_GPhot_CORE_MEAN": (features3["INTEGRATED_INTENSITY"]-(features3["EDGE_MEAN_INTENSITY"]*features3["PERIMETER"])) / features3["AREA_PIXELS_COUNT"]*1e-6,
         })
         if df is None:
             df = featuresdf
