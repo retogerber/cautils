@@ -104,7 +104,7 @@ def calculate_score(image, mask, channelnames=None):
 def bootstrap_weighted_proportion(data, weights, n_bootstrap=1000, alpha=0.05):
     """Bootstrap approach for weighted proportion testing"""
     
-    def weighted_proportion(values, wts, thresh):
+    def weighted_proportion(values, wts):
         indicators = (values > 0).astype(float)
         return np.sum(indicators * wts) / np.sum(wts)
     
