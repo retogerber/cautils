@@ -44,7 +44,7 @@ def calculate_score(image, mask, channelnames=None):
     assert mask.ndim == 2, "Mask must be a 2D numpy array (height, width)"
     assert image.shape[1:] == mask.shape, "Image and mask dimensions must match"
     if channelnames is None:
-        channelnames = [f"Channel_{i+1}" for i in range(image.shape[0])]
+        channelnames = [f"Channel_{i}" for i in range(image.shape[0])]
     elif len(channelnames) != image.shape[0]:
         raise ValueError("Length of channelnames must match the number of channels in the image")
 
@@ -57,7 +57,7 @@ def calculate_score(image, mask, channelnames=None):
 
     nyx = Nyxus(["MEAN","EDGE_MEAN_INTENSITY","AREA_PIXELS_COUNT","INTEGRATED_INTENSITY","PERIMETER"], n_feature_calc_threads=16 )
     df = None
-    for i in range(1,len(channelnames)):
+    for i in range(len(channelnames)):
         features1 = nyx.featurize(image[i,:,:], mask, [channelnames[i]])
         features2 = nyx.featurize(image_GP[i,:,:]*1e6, mask, [channelnames[i]])
         featuresdf = pl.DataFrame({
@@ -80,11 +80,11 @@ def calculate_score(image, mask, channelnames=None):
 
     # Calculate scores for each channel
     df = df.with_columns(
-        **{f"{ch}_GP_{m}_score": get_score(df[f'{ch}_{m}'].to_numpy(), df[f'{ch}_GP_{m}'].to_numpy()) for ch in channelnames[1:] for m in ["MEAN", "EDGE_MEAN", "CORE_MEAN"]}
+        **{f"{ch}_GP_{m}_score": get_score(df[f'{ch}_{m}'].to_numpy(), df[f'{ch}_GP_{m}'].to_numpy()) for ch in channelnames for m in ["MEAN", "EDGE_MEAN", "CORE_MEAN"]}
     )
     # Calculate differences between scores Edge and Core
     df = df.with_columns(**{
-            f'{ch}_GP_MEAN_diff_score': pl.col(f'{ch}_GP_CORE_MEAN_score') - pl.col(f'{ch}_GP_EDGE_MEAN_score') for ch in channelnames[1:]
+            f'{ch}_GP_MEAN_diff_score': pl.col(f'{ch}_GP_CORE_MEAN_score') - pl.col(f'{ch}_GP_EDGE_MEAN_score') for ch in channelnames
         })
     # pixels count
     df = df.with_columns(**{
