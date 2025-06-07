@@ -381,7 +381,7 @@ def G_permutation(x, connectivity=CONNECTIVITY_QUEEN, n_iter = 99, seed=42):
     GPi = (1+perm_G_counts[1])/(n_iter+1)
     return Gi, GPi
 
-def G(x, n_iter=99, connectivity=CONNECTIVITY_QUEEN, seed=42):
+def G(x, n_iter=0, connectivity=CONNECTIVITY_QUEEN, seed=42):
     G = G_classical(x, connectivity=connectivity, normalize=True)
     if n_iter > 0:
         GP = G_permutation(x, connectivity=connectivity, n_iter=n_iter, seed=seed)[1]
