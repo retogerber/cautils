@@ -52,7 +52,7 @@ def calculate_score(image, mask, channelnames=None, fdr_control=True):
 
     image_G = np.zeros_like(image, dtype=float)
     image_GP = np.zeros_like(image, dtype=float)
-    for chind in range(3):
+    for chind in range(len(channelnames)):
         GZi, GP = G(image[chind,:,:].astype(float), n_iter=0)
         image_G[chind,:,:] = GZi
         image_GP[chind,:,:] = GP
@@ -60,9 +60,9 @@ def calculate_score(image, mask, channelnames=None, fdr_control=True):
     image_GP_hot[image_G<0] = 0.5+(0.5-image_GP_hot[image_G<0])
     image_GP_hot = 1-image_GP_hot
     if fdr_control:
-        for chind in range(3):
+        for chind in range(len(channelnames)):
             image_GP_hot[chind,:,:] = scipy.stats.false_discovery_control(image_GP_hot[chind,:,:])
-        for chind in range(3):
+        for chind in range(len(channelnames)):
             image_GP[chind,:,:] = scipy.stats.false_discovery_control(image_GP[chind,:,:])
 
     nyx = Nyxus(["MEAN","EDGE_MEAN_INTENSITY","AREA_PIXELS_COUNT","PERIMETER"], n_feature_calc_threads=16 )
