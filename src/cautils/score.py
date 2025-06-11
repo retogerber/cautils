@@ -12,20 +12,22 @@ MARKER_LOCATIONS = {
 }
 
 
-def do_smooth(x,y):
-    max_distance = np.quantile(x, 0.99) / 25
+def do_smooth(x,y, nmaxdist=10, nmindist=25, minp=0.01):
+    max_distance = np.quantile(x, 0.99) / nmaxdist 
+    min_distance = np.quantile(x, 0.99) / nmindist 
     y_smooth = np.zeros_like(y)
     for i in range(len(x)):
         tdist = scipy.spatial.distance.cdist(x[[i],np.newaxis], x[:,np.newaxis], metric='euclidean')
-        ws = 1-np.clip(tdist/max_distance,0,1)
+        used_max_distance = np.nanmax([np.nanmin([np.nanquantile(tdist, minp), max_distance]), min_distance])
+        ws = 1-np.clip(tdist/used_max_distance,0,1)
         y_smooth[i] = np.sum(y*ws)/np.sum(ws)
-    is_outlier = np.abs((y_smooth-y))>0.05
-    y_smooth = np.zeros_like(y)
-    for i in range(len(x)):
-        tdist = scipy.spatial.distance.cdist(x[[i],np.newaxis], x[:,np.newaxis], metric='euclidean')
-        ws = 1-np.clip(tdist/max_distance,0,1)
-        ws[0,is_outlier] = 0
-        y_smooth[i] = np.sum(y*ws)/np.sum(ws)
+    # is_outlier = np.abs((y_smooth-y))>0.05
+    # y_smooth = np.zeros_like(y)
+    # for i in range(len(x)):
+    #     tdist = scipy.spatial.distance.cdist(x[[i],np.newaxis], x[:,np.newaxis], metric='euclidean')
+    #     ws = 1-np.clip(tdist/max_distance,0,1)
+    #     ws[0,is_outlier] = 0
+    #     y_smooth[i] = np.sum(y*ws)/np.sum(ws)
     return y_smooth
 
 def get_score(x,y):
