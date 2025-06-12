@@ -106,24 +106,31 @@ def calculate_score(image, mask, channelnames=None, fdr_control=True):
     df = pl.from_pandas(features1).pivot( 
         "intensity_image",
         index=["ROI_label"] + index_features,
-        values=featurels,
-    ).with_columns(**{ # rescale features
-        f"{fe}_{ch}": pl.col(f"{fe}_{ch}") * 1e-6
+        values=to_rescale_features,
+    ).rename({
+        f"{fe}_{ch}": f"{ch}_{fe}"
+        for fe in to_rescale_features for ch in channelnames_ls
+    }).rename({
+        f"{ch}_EDGE_MEAN_INTENSITY": f"{ch}_EDGE_MEAN"
+        for ch in channelnames_ls
+    }).with_columns(**{ # rescale features
+        f"{ch}_{fe}": pl.col(f"{ch}_{fe}") * 1e-6
         for fe in to_rescale_features for ch in channelnames_ls
     }).with_columns(**{ # sum intensity
-        f"SUM_{ch}": pl.col(f"MEAN_{ch}") * pl.col("AREA_PIXELS_COUNT")
+        f"{ch}_SUM": pl.col(f"{ch}_MEAN") * pl.col("AREA_PIXELS_COUNT")
         for ch in channelnames_ls
     }).with_columns(**{ # core mean intensity
-        f"CORE_MEAN_{ch}": (pl.col(f"SUM_{ch}")-(pl.col(f"EDGE_MEAN_INTENSITY_{ch}") * pl.col("PERIMETER"))) / pl.col("AREA_PIXELS_COUNT")
+        f"{ch}_CORE_MEAN": (pl.col(f"{ch}_SUM")-(pl.col(f"{ch}_EDGE_MEAN_INTENSITY") * pl.col("PERIMETER"))) / pl.col("AREA_PIXELS_COUNT")
         for ch in channelnames_ls
-    }).with_columns(**{ # Calculate scores for each channel
+    })
+    df = df.with_columns(**{ # Calculate scores for each channel
         f"{ch}_GP_{m}_score": get_score(df[f'{ch}_{m}'].to_numpy(), df[f'{ch}_GP_{m}'].to_numpy()) for ch in channelnames for m in ["MEAN", "EDGE_MEAN", "CORE_MEAN"]
     }).with_columns(**{ # Calculate differences between scores Edge and Core
             f'{ch}_GP_MEAN_diff_score': pl.col(f'{ch}_GP_CORE_MEAN_score') - pl.col(f'{ch}_GP_EDGE_MEAN_score') for ch in channelnames
     }).with_columns(**{ # pixels count
-            'AREA': pl.col(f'{channelnames[0]}_AREA'),
-            'AREA_EDGE': pl.col(f'{channelnames[0]}_PERIMETER'),
-            'AREA_CORE': pl.col(f'{channelnames[0]}_AREA') - pl.col(f'{channelnames[0]}_PERIMETER'),
+            'AREA': pl.col('AREA_PIXELS_COUNT'),
+            'AREA_EDGE': pl.col('PERIMETER'),
+            'AREA_CORE': pl.col('AREA_PIXELS_COUNT') - pl.col('PERIMETER'),
     }).with_columns( # weights
         pl.min_horizontal("AREA_EDGE", "AREA_CORE").alias("AREA_MIN_EDGE_CORE")
     )
