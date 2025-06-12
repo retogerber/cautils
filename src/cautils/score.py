@@ -88,50 +88,43 @@ def calculate_score(image, mask, channelnames=None, fdr_control=True):
         for chind in range(len(channelnames)):
             image_GP[chind,:,:] = scipy.stats.false_discovery_control(image_GP[chind,:,:])
 
-    nyx = Nyxus(["MEAN","EDGE_MEAN_INTENSITY","AREA_PIXELS_COUNT","PERIMETER"], n_feature_calc_threads=16 )
-    df = None
-    for i in range(len(channelnames)):
-        features1 = nyx.featurize(image[i,:,:], mask, [channelnames[i]])
-        features2 = nyx.featurize(image_GP[i,:,:]*1e6, mask, [channelnames[i]])
-        features3 = nyx.featurize(image_GP_hot[i,:,:]*1e6, mask, [channelnames[i]])
-        featuresdf = pl.DataFrame({
-                "ObjectNumber": features1["ROI_label"].astype(np.int64),
-                f"{channelnames[i]}_AREA": features1["AREA_PIXELS_COUNT"],
-                f"{channelnames[i]}_PERIMETER": features1["PERIMETER"],
-                f"{channelnames[i]}_MEAN": features1["MEAN"],
-                f"{channelnames[i]}_SUM": features1["MEAN"]* features1["AREA_PIXELS_COUNT"],
-                f"{channelnames[i]}_EDGE_MEAN": features1["EDGE_MEAN_INTENSITY"],
-                f"{channelnames[i]}_CORE_MEAN": (features1["MEAN"]* features1["AREA_PIXELS_COUNT"]-(features1["EDGE_MEAN_INTENSITY"]*features1["PERIMETER"])) / features1["AREA_PIXELS_COUNT"],
-                f"{channelnames[i]}_GP_MEAN": features2["MEAN"]*1e-6,
-                f"{channelnames[i]}_GP_SUM": features2["MEAN"]* features2["AREA_PIXELS_COUNT"]*1e-6,
-                f"{channelnames[i]}_GP_EDGE_MEAN": features2["EDGE_MEAN_INTENSITY"]*1e-6,
-                f"{channelnames[i]}_GP_CORE_MEAN": (features2["MEAN"]* features2["AREA_PIXELS_COUNT"]*1e-6-(features2["EDGE_MEAN_INTENSITY"]*1e-6*features2["PERIMETER"])) / features2["AREA_PIXELS_COUNT"],
-                f"{channelnames[i]}_GPhot_MEAN": features3["MEAN"]*1e-6,
-                f"{channelnames[i]}_GPhot_SUM": features3["MEAN"]* features3["AREA_PIXELS_COUNT"]*1e-6,
-                f"{channelnames[i]}_GPhot_EDGE_MEAN": features3["EDGE_MEAN_INTENSITY"]*1e-6,
-                f"{channelnames[i]}_GPhot_CORE_MEAN": (features3["MEAN"]* features3["AREA_PIXELS_COUNT"]*1e-6-(features3["EDGE_MEAN_INTENSITY"]*1e-6*features3["PERIMETER"])) / features3["AREA_PIXELS_COUNT"],
-        })
-        if df is None:
-            df = featuresdf
-        else:
-            df = df.join(featuresdf, on="ObjectNumber", how="inner")
-
-    # Calculate scores for each channel
-    df = df.with_columns(
-        **{f"{ch}_GP_{m}_score": get_score(df[f'{ch}_{m}'].to_numpy(), df[f'{ch}_GP_{m}'].to_numpy()) for ch in channelnames for m in ["MEAN", "EDGE_MEAN", "CORE_MEAN"]}
-    )
-    # Calculate differences between scores Edge and Core
-    df = df.with_columns(**{
+    featurels = ["MEAN","EDGE_MEAN_INTENSITY","AREA_PIXELS_COUNT","PERIMETER"]
+    to_rescale_features = ["MEAN", "EDGE_MEAN_INTENSITY"]
+    index_features = [n for n in featurels if n not in to_rescale_features]
+    nyx = Nyxus(featurels, n_feature_calc_threads=16 )
+    channelnames_ls = channelnames.tolist() + [
+        f"{name}_GP" for name in channelnames.tolist()
+    ] + [
+        f"{name}_GPhot" for name in channelnames.tolist()
+    ]
+    features1 = nyx.featurize(
+        np.vstack([image*1e6,image_GP*1e6,image_GP_hot*1e6]), # mutliply by 1e6 to avoid numerical issues
+        np.stack([mask for i in range(3*image.shape[0])]),
+        intensity_names=channelnames_ls,
+        label_names=channelnames_ls
+        )
+    df = pl.from_pandas(features1).pivot( 
+        "intensity_image",
+        index=["ROI_label"] + index_features,
+        values=featurels,
+    ).with_columns(**{ # rescale features
+        f"{fe}_{ch}": pl.col(f"{fe}_{ch}") * 1e-6
+        for fe in to_rescale_features for ch in channelnames_ls
+    }).with_columns(**{ # sum intensity
+        f"SUM_{ch}": pl.col(f"MEAN_{ch}") * pl.col("AREA_PIXELS_COUNT")
+        for ch in channelnames_ls
+    }).with_columns(**{ # core mean intensity
+        f"CORE_MEAN_{ch}": (pl.col(f"SUM_{ch}")-(pl.col(f"EDGE_MEAN_INTENSITY_{ch}") * pl.col("PERIMETER"))) / pl.col("AREA_PIXELS_COUNT")
+        for ch in channelnames_ls
+    }).with_columns(**{ # Calculate scores for each channel
+        f"{ch}_GP_{m}_score": get_score(df[f'{ch}_{m}'].to_numpy(), df[f'{ch}_GP_{m}'].to_numpy()) for ch in channelnames for m in ["MEAN", "EDGE_MEAN", "CORE_MEAN"]
+    }).with_columns(**{ # Calculate differences between scores Edge and Core
             f'{ch}_GP_MEAN_diff_score': pl.col(f'{ch}_GP_CORE_MEAN_score') - pl.col(f'{ch}_GP_EDGE_MEAN_score') for ch in channelnames
-        })
-    # pixels count
-    df = df.with_columns(**{
+    }).with_columns(**{ # pixels count
             'AREA': pl.col(f'{channelnames[0]}_AREA'),
             'AREA_EDGE': pl.col(f'{channelnames[0]}_PERIMETER'),
             'AREA_CORE': pl.col(f'{channelnames[0]}_AREA') - pl.col(f'{channelnames[0]}_PERIMETER'),
-        })
-    # weights
-    df = df.with_columns(
+    }).with_columns( # weights
         pl.min_horizontal("AREA_EDGE", "AREA_CORE").alias("AREA_MIN_EDGE_CORE")
     )
     return df
