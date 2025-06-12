@@ -110,12 +110,12 @@ def calculate_score(image, mask, channelnames=None, fdr_control=True):
     ).rename({
         f"{fe}_{ch}": f"{ch}_{fe}"
         for fe in to_rescale_features for ch in channelnames_ls
-    }).rename({
-        f"{ch}_EDGE_MEAN_INTENSITY": f"{ch}_EDGE_MEAN"
-        for ch in channelnames_ls
     }).with_columns(**{ # rescale features
         f"{ch}_{fe}": pl.col(f"{ch}_{fe}") * 1e-6
         for fe in to_rescale_features for ch in channelnames_ls
+    }).rename({
+        f"{ch}_EDGE_MEAN_INTENSITY": f"{ch}_EDGE_MEAN"
+        for ch in channelnames_ls
     }).with_columns(**{ # sum intensity
         f"{ch}_SUM": pl.col(f"{ch}_MEAN") * pl.col("AREA_PIXELS_COUNT")
         for ch in channelnames_ls
