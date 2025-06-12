@@ -120,7 +120,7 @@ def calculate_score(image, mask, channelnames=None, fdr_control=True):
         f"{ch}_SUM": pl.col(f"{ch}_MEAN") * pl.col("AREA_PIXELS_COUNT")
         for ch in channelnames_ls
     }).with_columns(**{ # core mean intensity
-        f"{ch}_CORE_MEAN": (pl.col(f"{ch}_SUM")-(pl.col(f"{ch}_EDGE_MEAN_INTENSITY") * pl.col("PERIMETER"))) / pl.col("AREA_PIXELS_COUNT")
+        f"{ch}_CORE_MEAN": (pl.col(f"{ch}_SUM")-(pl.col(f"{ch}_EDGE_MEAN") * pl.col("PERIMETER"))) / pl.col("AREA_PIXELS_COUNT")
         for ch in channelnames_ls
     })
     df = df.with_columns(**{ # Calculate scores for each channel
