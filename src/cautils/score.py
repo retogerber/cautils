@@ -11,6 +11,23 @@ MARKER_LOCATIONS = {
     "Whole_cell": 2
 }
 
+# x = np.arange(1000)/250-2
+# y = np.array([-np.abs(np.random.normal(i, 0.1, 1)) for i in x]).flatten()
+# y = y - np.min(y)
+
+def get_smooth_max(x,y, nmaxdist=10, nmindist=25, minp=0.01):
+    y_order = np.argsort(y)
+    y_sorted = y[y_order]
+    x_sorted = x[y_order]
+    xq99 = np.quantile(x_sorted, 0.99)
+    max_distance = xq99 / nmaxdist 
+    min_distance = xq99 / nmindist 
+    initx = np.median(x_sorted[int(np.round(len(y_sorted)*0.95)):])
+    tdist = np.abs(initx-x_sorted)
+    used_max_distance = np.nanmax([np.nanmin([np.nanquantile(tdist, minp), max_distance]), min_distance])
+    ws = 1-np.clip(tdist/used_max_distance,0,1)
+    return initx, np.sum(y_sorted*ws)/np.sum(ws)
+
 
 def do_smooth(x,y, nmaxdist=10, nmindist=25, minp=0.01):
     max_distance = np.quantile(x, 0.99) / nmaxdist 
@@ -31,10 +48,11 @@ def do_smooth(x,y, nmaxdist=10, nmindist=25, minp=0.01):
     return y_smooth
 
 def get_score(x,y):
-    y_smooth =  do_smooth(x, y)
-    max_idx = np.argmax(y_smooth)
-    x_max = x[max_idx]
-    y_max = y_smooth[max_idx]
+    # y_smooth =  do_smooth(x, y)
+    # max_idx = np.argmax(y_smooth)
+    # x_max = x[max_idx]
+    # y_max = y_smooth[max_idx]
+    x_max, y_max = get_smooth_max(x,y, nmaxdist=10, nmindist=25, minp=0.01)
 
     y_new = y.copy()
     y_new[np.logical_or(y>y_max,x<x_max)] = y_max
