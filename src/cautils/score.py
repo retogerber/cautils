@@ -108,6 +108,8 @@ def calculate_score(image, mask, channelnames=None, fdr_control=True):
         index=["ROI_label"] + index_features,
         values=to_rescale_features,
     ).rename({
+        "ROI_label": "ObjectNumber"
+    }).rename({
         f"{fe}_{ch}": f"{ch}_{fe}"
         for fe in to_rescale_features for ch in channelnames_ls
     }).with_columns(**{ # rescale features
