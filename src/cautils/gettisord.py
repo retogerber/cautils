@@ -200,17 +200,25 @@ def G_variable_permutation_multiple(x, radius=[10,25,50,100], n_iter=99, connect
 # GPim = np.min(GPic, axis=0)  # take the minimum p-value across all resolutions
 
 
-def G(x, n_iter=0, radius = None, connectivity=CONNECTIVITY_QUEEN, seed=42):
-    G = G_classical(x, connectivity=connectivity, normalize=True)
+def G(x, n_iter=0, radius = None, connectivity=CONNECTIVITY_QUEEN, seed=42, aggregation="min"):
+    assert aggregation in ["min", "mean"], "Aggregation must be either 'min' or 'mean'."
     if n_iter > 0:
         if radius is not None:
             if isinstance(radius, (list, tuple)):
-                G, GP = G_variable_permutation_multiple(x, radius=radius, n_iter=n_iter, connectivity=connectivity, seed=seed)
+                Gm, GPm = G_variable_permutation_multiple(x, radius=radius, n_iter=n_iter, connectivity=connectivity, seed=seed)
+                if aggregation == "mean":
+                    GP = np.mean(GPm, axis=0)
+                    G = np.mean(Gm, axis=0)
+                else:
+                    inds = np.argmin(GPm, axis=0)
+                    GP = GPm[inds, np.arange(x.shape[0])[:, None], np.arange(x.shape[1])]
+                    G = Gm[inds, np.arange(x.shape[0])[:, None], np.arange(x.shape[1])]
             else:
                 G, GP = G_variable_permutation(x, radius=radius, n_iter=n_iter, connectivity=connectivity, seed=seed)
         else:
-            GP = G_permutation(x, connectivity=connectivity, n_iter=n_iter, seed=seed)[1]
+            G, GP = G_permutation(x, connectivity=connectivity, n_iter=n_iter, seed=seed)
     else:
+        G = G_classical(x, connectivity=connectivity, normalize=True)
         GP = (1.0 - scipy.stats.norm.cdf(np.abs(G)))*2 # scale to [0,1]
     return G, GP
 
