@@ -7,7 +7,7 @@ CONNECTIVITY_ROOK = 1
 CONNECTIVITY_QUEEN = 2
 
 
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.njit(parallel=False, cache=True)
 def man_pad(x):
     xm = np.empty((x.shape[0]+2,x.shape[1]+2), dtype=x.dtype)
     xm[1:-1,1:-1] = x
@@ -21,7 +21,7 @@ def man_pad(x):
     xm[-1,-1] = x[-1,-1]
     return xm
 
-@numba.jit(nopython=True, parallel=True, cache=False)
+@numba.njit(parallel=True, cache=True)
 def G_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True):
     x_sum = np.float64(np.sum(x))
 
@@ -45,7 +45,7 @@ def G_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True):
 
 # G(x, connectivity=CONNECTIVITY_QUEEN, normalize=True)
 
-@numba.jit(nopython=True, parallel=True, cache=False)
+@numba.njit(parallel=True, cache=True)
 def G_permutation(x, connectivity=CONNECTIVITY_QUEEN, n_iter = 99, seed=42):
     np.random.seed(seed)
     x_sum = np.float64(np.sum(x))
@@ -98,7 +98,7 @@ def G_permutation(x, connectivity=CONNECTIVITY_QUEEN, n_iter = 99, seed=42):
     return Gi, GPi
 
 
-@numba.jit(nopython=True, parallel=True, cache=False)
+@numba.njit(parallel=True, cache=True)
 def _G_variable_permutation(x, x_sum, kernel, connectivity=CONNECTIVITY_QUEEN, n_iter = 99, seed=42):
     np.random.seed(seed)
 
@@ -252,7 +252,7 @@ def G(x, n_iter=0, radius = None, connectivity=CONNECTIVITY_QUEEN, seed=42):
 # x[40:,40:] += 100000
 # Gi, GPi = G_variable(x, n_iter=999, connectivity=CONNECTIVITY_QUEEN, seed=42, min_range=3, max_range=None, n_ranges=10)
 
-@numba.jit(nopython=True, parallel=True, cache=False)
+@numba.njit(parallel=True, cache=True)
 def H_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True, return_var=False):
     w1=4*connectivity + 1
 
@@ -287,7 +287,7 @@ def H_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True, return_var=F
 
 # H(x, connectivity=CONNECTIVITY_QUEEN, normalize=False, return_var=False)
 
-@numba.jit(nopython=True, parallel=True, cache=False)
+@numba.njit(parallel=True, cache=True)
 def H_permutation(x, connectivity=CONNECTIVITY_QUEEN, n_iter = 99, seed=42):
     np.random.seed(seed)
     w1=4*connectivity + 1

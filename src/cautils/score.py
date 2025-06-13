@@ -17,7 +17,7 @@ MARKER_LOCATIONS = {
 # get_smooth_max(x,y)
 # get_score(x,y)
 
-@numba.njit()
+@numba.njit(cache=True)
 def get_smooth_max(x,y, nmaxdist=10, nmindist=25, minp=0.01):
     y_order = np.argsort(y)
     y_sorted = y[y_order]
@@ -51,7 +51,7 @@ def do_smooth(x,y, nmaxdist=10, nmindist=25, minp=0.01):
     #     y_smooth[i] = np.sum(y*ws)/np.sum(ws)
     return y_smooth
 
-@numba.njit()
+@numba.njit(cache=True)
 def get_score(x,y):
     # y_smooth =  do_smooth(x, y)
     # max_idx = np.argmax(y_smooth)
