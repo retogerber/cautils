@@ -1,230 +1,11 @@
 import numba
 import numpy as np
 import scipy
+import skimage
 
 CONNECTIVITY_ROOK = 1
 CONNECTIVITY_QUEEN = 2
 
-# @numba.jit(nopython=True, parallel=False, cache=False)
-# def meshgrid_2D(x, y):
-#     """
-#     Create a meshgrid for 2D arrays.
-
-#     Example:
-#     x = np.arange(3)
-#     y = np.arange(4)
-#     xx, yy = meshgrid_2D(x, y)
-#     """
-#     xx = np.empty(shape=(x.shape[0], y.shape[0]), dtype=x.dtype)
-#     yy = np.empty(shape=(x.shape[0], y.shape[0]), dtype=y.dtype)
-#     for i in range(x.shape[0]):
-#         for j in range(y.shape[0]):
-#             xx[i,j] = x[i]
-#             yy[i,j] = y[j]
-#     return yy, xx
-
-# @numba.jit(nopython=True, parallel=False, cache=False)
-# def get_offset_indices(d: int = 1) -> np.ndarray:
-#     """
-#     Get the offset indices for a 2D grid.
-
-#     The offsets are in the range [-d, d] for both dimensions.
-    
-#     Example:
-#     d = 1
-#     offset_indices = get_offset_indices(d)
-#     """
-#     potential_offsets = meshgrid_2D(np.arange(np.floor(-d),np.ceil(d)+1),np.arange(np.floor(-d),np.ceil(d)+1))
-#     squares = np.empty_like(potential_offsets[0], dtype=np.uint8)
-#     for i in range(potential_offsets[0].shape[0]):
-#         for j in range(potential_offsets[0].shape[1]):
-#             # don't use the center point
-#             if potential_offsets[0][i,j]==0 and potential_offsets[1][i,j]==0:
-#                 squares[i,j] = d**2+1
-#             else:   
-#                 squares[i,j] = potential_offsets[0][i,j]**2 + potential_offsets[1][i,j]**2
-#     to_keep = squares<=d**2
-#     offset_indices = np.empty((np.sum(to_keep),2), dtype=np.int32)
-#     c = 0
-#     for i in range(potential_offsets[0].shape[0]):
-#         for j in range(potential_offsets[0].shape[1]):
-#             if to_keep[i,j]:
-#                 offset_indices[c][0] = potential_offsets[0][i,j]
-#                 offset_indices[c][1] = potential_offsets[1][i,j]
-#                 c += 1
-#     return offset_indices
-# # get_offset_indices(1)
-
-# @numba.jit(nopython=True, parallel=False, cache=False)
-# def weight_from_dims(n1, n2, wrap1=False,wrap2=False, offset_indices=None) -> np.ndarray:
-#     """
-#     Create a weight matrix for a 2D grid.
-
-#     The weight matrix is a square matrix of size n1*n2 x n1*n2.
-#     The weights are 1 for the neighbors and 0 for the rest.
-#     The neighbors are defined by the offset indices.
-    
-#     Example:
-#     n1 = 3
-#     n2 = 4
-#     wrap1 = True
-#     wrap2 = False
-#     offset_indices = None
-#     W = weight_from_dims(n1, n2, wrap1, wrap2, offset_indices)
-#     """
-#     if offset_indices is None:
-#         offset_indices = get_offset_indices(1)
-#     n = n1*n2
-#     W = np.zeros((n,n), dtype=np.uint8)
-#     for x1 in range(n1):
-#         for y1 in range(n2):
-#             for ox,oy in offset_indices:
-#                 x2 = x1+ox
-#                 y2 = y1+oy
-#                 # print(f"x1: {x1}, y1: {y1}, x2: {x2}, y2: {y2}")
-#                 x2w = x2%n1
-#                 y2w = y2%n2
-#                 if x2w != x2 and not wrap1:
-#                     continue
-#                 if y2w != y2 and not wrap2:
-#                     continue
-#                 W[x1*n2+y1,x2w*n2+y2w] = 1
-#                 # print(W[0,:].reshape(n1,n2))
-#     return W
-
-# @numba.jit(nopython=True, parallel=False, cache=False)
-# def subset_weights(W, to_keep):
-#     return W[to_keep][:, to_keep]
-
-# @numba.jit(nopython=True, parallel=False, cache=False)
-# def compute_G(x,W):
-#     """
-#     Compute G statistic for a 2D grid.
-    
-#     Example:
-#     x = np.random.rand(3,4)
-#     W = weight_from_dims(3, 4)
-#     G = compute_G(x, W)
-#     """
-#     den = 0
-#     nume = 0
-#     x_lin = x.flatten()
-#     for i in range(len(x_lin)):
-#         for j in range(len(x_lin)):
-#             nume += x_lin[i]*x_lin[j]*W[i,j]
-#             den += x_lin[i]*x_lin[j]
-#     return nume/den
-
-
-# @numba.jit(nopython=True, parallel=False, cache=False)
-# def compute_coefficients(n, S1, S2, W2):
-#     B0 = (n**2 - 3*n + 3)*S1 - n*S2 + 3*W2
-#     B1 = -((n**2 - n)*S1 - 2*n*S2 + 3*W2)
-#     B2 = -(2*n*S1 - (n + 3)*S2 + 6*W2)
-#     B3 = 4*(n - 1)*S1 - 2*(n + 1)*S2 + 8*W2
-#     B4 = S1 - S2 + W2
-#     return B0, B1, B2, B3, B4
-
-# @numba.jit(nopython=True, parallel=False, cache=False)
-# def compute_S1(Wmat):
-#     return np.sum((Wmat+Wmat.T)**2)/2
-
-# @numba.jit(nopython=True, parallel=False, cache=False)
-# def compute_S2(Wmat):
-#     # np.sum((np.sum(Wmat,axis=0)+np.sum(Wmat,axis=1))**2)
-#     S2 = 0
-#     for i in range(Wmat.shape[0]):
-#         S2 += (np.sum(Wmat[i,:]) + np.sum(Wmat[:,i]))**2
-#     return S2
-
-# @numba.jit(nopython=True, parallel=False, cache=False)
-# def compute_ms(x):
-#     m1 = 0
-#     m2 = 0
-#     m3 = 0
-#     m4 = 0
-#     for xi in x:
-#         m1 += xi
-#         m2 += xi**2
-#         m3 += xi**3
-#         m4 += xi**4 
-#     return m1, m2, m3, m4
-
-# def compute_EG_2(x, Wmat):
-#     n = len(x)
-#     S1 = compute_S1(Wmat)
-#     S2 = compute_S2(Wmat)
-#     W2 = np.sum(Wmat)**2
-
-#     B0, B1, B2, B3, B4 = compute_coefficients(n, S1, S2, W2)
-#     m1, m2, m3, m4 = compute_ms(x)
-
-#     den = (m1**2-m2)**2*(n*(n-1)*(n-2)*(n-3))
-#     num = B0*m2**2 + B1*m4 + B2*m1**2*m2 + B3*m1*m3 + B4*m1**4
-
-#     if den == 0:
-#         return np.nan
-#     E_G_2 = num/den
-#     return E_G_2
-
-# def compute_Gi(x,W):
-#     """
-#     Compute Gi statistic for a 2D grid.
-
-#     Example:
-#     x = np.random.rand(3,4)
-#     W = weight_from_dims(3, 4)
-#     Gi, Zi, Pi = compute_Gi(x.flatten(), W)
-#     """
-#     Gi=np.empty_like(x, dtype=np.float64)
-#     Zi=np.empty_like(x, dtype=np.float64)
-#     Pi=np.empty_like(x, dtype=np.float64)
-#     n=len(x)
-#     Yi1 = np.sum(x)/(n-1)
-#     Yi2 = np.sum(x**2)/(n-1)-Yi1**2
-#     x_sum = np.sum(x)
-#     for i in range(len(x)):
-#         Gi[i] = np.sum(W[i,:]*x)/x_sum
-#         wi = np.sum(W[i,:])
-#         E_i = wi/(n-1)
-#         V_i = (wi*(n-1-wi)*Yi2)/((n-1)**2*(n-2)*Yi1**2)
-#         Zi[i] = (Gi[i]-E_i)/np.sqrt(V_i)
-#         Pi[i] = 1.0 - scipy.stats.norm.cdf(np.abs(Zi[i]))
-#     return Gi, Zi, Pi
-
-# def compute_Hi(x,W):
-#     """
-#     Compute Hi statistic for a 2D grid.
-
-#     Example:
-#     x = np.random.rand(3,4)
-#     W = weight_from_dims(3, 4)
-#     Hi, Zi, Pi = compute_Hi(x.flatten(), W)
-#     """
-#     w1 = np.sum(W, axis=1)
-#     w2 = np.sum(W**2,axis=1)
-#     # Calculate spatial mean
-#     xlag = np.matmul(W, x)/w1
-#     # xlag = (np.matmul(W, x)+x)/(rowsum+1)
-#     xresid = (x - xlag) ** 2
-#     h1 = np.mean(xresid)
-#     h2 = np.mean(xresid**2)
-#     denom = h1 * w1
-#     Hi = np.matmul(W, xresid) / denom
-
-#     n = len(x)
-#     term1 = 1/(n - 1)
-#     term2 = (1/denom)**2
-#     term3 = h2 - h1**2
-#     term4 = (n * w2) - (w1**2)
-#     VarHi = term1 * term2 * term3 * term4
-#     dof = 2/VarHi
-#     Zi = (2*Hi)/VarHi
-#     Pi = 1 - scipy.stats.chi2.cdf(Zi, dof)
-#     return Hi, Zi, Pi
-
-
-# x = np.random.rand(100,100)
 
 @numba.jit(nopython=True, parallel=False, cache=False)
 def man_pad(x):
@@ -239,71 +20,6 @@ def man_pad(x):
     xm[-1,0] = x[-1,0]
     xm[-1,-1] = x[-1,-1]
     return xm
-
-# @numba.jit(nopython=True, parallel=True, cache=False)
-# def G_and_H_numba(x, connectivity=CONNECTIVITY_QUEEN):
-#     n=np.float64((x.shape[0]*x.shape[1]))
-#     x_sum = np.float64(np.sum(x))
-#     x2_sum = np.float64(np.sum(x**2))
-#     Yi1 = x_sum/(n-1)
-#     Yi2 = x2_sum/(n-1)-Yi1**2
-#     w1=4*connectivity
-
-#     # neighborhood means
-#     xp = man_pad(x)
-#     if connectivity == CONNECTIVITY_QUEEN:
-#         xnm = (xp[:-2,1:-1]+xp[1:-1,:-2]+xp[2:,1:-1]+xp[1:-1,2:]+xp[:-2,:-2]+xp[:-2,2:]+xp[2:,:-2]+xp[2:,2:])/w1
-#     else:
-#         xnm = (xp[:-2,1:-1]+xp[1:-1,:-2]+xp[2:,1:-1]+xp[1:-1,2:])/w1
-#     Gi = (xnm*w1)/x_sum
-
-#     Ei=w1/(n-1)
-#     V_i = (w1*(n-1-w1)*Yi2)/((n-1)**2*(n-2)*Yi1**2)
-#     GZi = (Gi-Ei)/np.sqrt(V_i)
-
-#     xresid = (x - xnm) ** 2
-#     h1 = np.mean(xresid)
-#     h2 = np.mean(xresid**2)
-#     denom = h1 * w1
-#     if connectivity == CONNECTIVITY_QUEEN:
-#         Hi = ((xp[:-2,1:-1]-xnm)**2+(xp[1:-1,:-2]-xnm)**2+(xp[2:,1:-1]-xnm)**2+(xp[1:-1,2:]-xnm)**2+(xp[:-2,:-2]-xnm)**2+(xp[:-2,2:]-xnm)**2+(xp[2:,:-2]-xnm)**2+(xp[2:,2:]-xnm)**2) / denom
-#     else:
-#         Hi = ((xp[:-2,1:-1]-xnm)**2+(xp[1:-1,:-2]-xnm)**2+(xp[2:,1:-1]-xnm)**2+(xp[1:-1,2:]-xnm)**2) / denom
-#     # because all weights are equal to one
-#     w2=w1
-#     VarHi = 1/(n - 1) * (1/denom)**2 * (h2 - h1**2) * ((n * w2) - (w1**2))
-#     HZi = (2*Hi)/VarHi
-#     return Hi,GZi, HZi, VarHi
-# G_and_H_numba_serial = numba.jit(G_and_H_numba.py_func, nopython=True, parallel=False, cache=False)
-
-# # x = np.random.rand(100,100)
-# # G,H,_ = G_and_H_numba(x)
-# # G,H,_ = G_and_H_numba_serial(x)
-
-# @numba.jit(nopython=True, parallel=False, cache=False)
-# def G_and_H(x, parallel=None, connectivity=CONNECTIVITY_QUEEN):
-#     if parallel is None:
-#         if numba.get_num_threads() > 1 and x.size > 5000:
-#             parallel = True
-#         else:
-#             parallel = False
-#     if parallel:
-#         return G_and_H_numba(x, connectivity=connectivity)
-#     else:
-#         return G_and_H_numba_serial(x, connectivity=connectivity)
-
-# # x = np.random.rand(100,100)
-# # G,H,VarHi = G_and_H_numba(x)
-
-# def H_PV(x, VarHi):
-#     dof = 2/VarHi
-#     return 1 - scipy.stats.chi2.cdf(x, dof)
-# # H_PV(H, VarHi)
-
-# def G_PV(x):
-#     return  1.0 - scipy.stats.norm.cdf(np.abs(x))
-# # G_PV(G)
-
 
 @numba.jit(nopython=True, parallel=True, cache=False)
 def G_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True):
@@ -381,15 +97,160 @@ def G_permutation(x, connectivity=CONNECTIVITY_QUEEN, n_iter = 99, seed=42):
     GPi = (1+perm_G_counts[1])/(n_iter+1)
     return Gi, GPi
 
-def G(x, n_iter=0, connectivity=CONNECTIVITY_QUEEN, seed=42):
+
+@numba.jit(nopython=True, parallel=True, cache=False)
+def _G_variable_permutation(x, x_sum, kernel, connectivity=CONNECTIVITY_QUEEN, n_iter = 99, seed=42):
+    np.random.seed(seed)
+
+    # neighborhood sums
+    xp = man_pad(x)
+    if connectivity == CONNECTIVITY_QUEEN:
+        xns = (xp[:-2,1:-1]+xp[1:-1,:-2]+xp[2:,1:-1]+xp[1:-1,2:]+xp[:-2,:-2]+xp[:-2,2:]+xp[2:,:-2]+xp[2:,2:])
+    else:
+        xns = (xp[:-2,1:-1]+xp[1:-1,:-2]+xp[2:,1:-1]+xp[1:-1,2:])
+    # observed Gi
+    Gi = xns/x_sum
+
+    kw = kernel.shape[0]//2
+    kh = kernel.shape[1]//2
+
+    # initialize counts for permutation
+    perm_G_counts = np.zeros((2,Gi.shape[0],Gi.shape[1]), dtype=np.uint16)
+    # iterate over all pixels
+    for xi in numba.prange(x.shape[0]):
+        for yi in numba.prange(x.shape[1]):
+            # subset of x to radius of kernel + borders
+            xt0 = min([max([xi-kw,0]),x.shape[0]])
+            xt1 = min([max([xi+kw+1,0]),x.shape[0]])
+            yt0 = min([max([yi-kh,0]),x.shape[1]])
+            yt1 = min([max([yi+kh+1,0]),x.shape[1]])
+            xtmp = x[xt0:xt1, yt0:yt1]
+
+            # subset of kernel because of borders 
+            xt0 = min([max([kw-xi,0]),kernel.shape[0]])
+            xt1 = min([max([kw+(x.shape[0]-xi),0]),kernel.shape[0]])
+            yt0 = min([max([kh-yi,0]),kernel.shape[1]])
+            yt1 = min([max([kh+(x.shape[1]-yi),0]),kernel.shape[1]])
+            kerneltmp = kernel[xt0:xt1, yt0:yt1]
+
+            # extract values from xtmp that are in the kernel
+            xtmptmp = np.empty(np.sum(kerneltmp))
+            tind = 0
+            for ti in range(xtmp.shape[0]):
+                for tj in range(xtmp.shape[1]):
+                    if kerneltmp[ti,tj] == 1:
+                        xtmptmp[tind] = xtmp[ti,tj]
+                        tind += 1
+
+            # number of neighbors to sample
+            n_samples = 8 if connectivity == CONNECTIVITY_QUEEN else 4
+
+            # permute over neighbors
+            for rep in numba.prange(n_iter):
+                # TODO: should use sampling without replacement, but performance is very poort with np.random.choice
+                rinds=np.random.randint(0,len(xtmptmp),n_samples)
+                if connectivity == CONNECTIVITY_QUEEN:
+                    xrns_init_replacement = (
+                        x[xi,yi]+
+                        xtmptmp[rinds[0]]+
+                        xtmptmp[rinds[1]]+
+                        xtmptmp[rinds[2]]+
+                        xtmptmp[rinds[3]]+
+                        xtmptmp[rinds[4]]+
+                        xtmptmp[rinds[5]]+
+                        xtmptmp[rinds[6]]+
+                        xtmptmp[rinds[7]]
+                        )
+                else:
+                    xrns_init_replacement = (
+                        x[xi,yi]+
+                        xtmptmp[rinds[0]]+
+                        xtmptmp[rinds[1]]+
+                        xtmptmp[rinds[2]]+
+                        xtmptmp[rinds[3]]
+                        )
+                # permuted Gi
+                Gir = xrns_init_replacement/x_sum[xi,yi]
+                # compare with observed Gi
+                perm_G_counts[np.int64(Gir>Gi[xi,yi]),xi,yi] += 1
+
+    # calculate p-values
+    GPi = (1+perm_G_counts[1,:,:])/(n_iter+1)
+    return Gi, GPi
+
+
+def G_variable_permutation(x, radius=50, n_iter=99, connectivity=CONNECTIVITY_QUEEN, seed=42):
+    kernel = np.zeros((2*radius+1,2*radius+1), dtype=np.uint8)
+    rr, cc = skimage.draw.disk((radius, radius), radius+0.5)
+    kernel[rr, cc] = 1
+    x_sum = scipy.signal.fftconvolve(x, kernel, mode='same')
+
+    return _G_variable_permutation(x, x_sum, kernel, connectivity=connectivity, n_iter = n_iter, seed=seed)
+
+def G_variable_permutation_multiple(x, radius=[10,25,50,100], n_iter=99, connectivity=CONNECTIVITY_QUEEN, seed=42):
+    Gimult = np.zeros((len(radius), x.shape[0], x.shape[1]), dtype=np.float64)
+    GPimult = np.zeros((len(radius), x.shape[0], x.shape[1]), dtype=np.float64)
+    for i,r in enumerate(radius):
+        Gimult[i], GPimult[i] = G_variable_permutation(x, radius=r, n_iter=n_iter, connectivity=connectivity, seed=seed)
+    return Gimult, GPimult
+
+# G_variable_multiple(x, n_iter=9)
+
+# GPic = np.stack((GPi, GPi100, GPi50, GPi25, GPi10), axis=0)
+# GPim = np.min(GPic, axis=0)  # take the minimum p-value across all resolutions
+
+
+def G(x, n_iter=0, radius = None, connectivity=CONNECTIVITY_QUEEN, seed=42):
     G = G_classical(x, connectivity=connectivity, normalize=True)
     if n_iter > 0:
-        GP = G_permutation(x, connectivity=connectivity, n_iter=n_iter, seed=seed)[1]
+        if radius is not None:
+            if isinstance(radius, (list, tuple)):
+                G, GP = G_variable_permutation_multiple(x, radius=radius, n_iter=n_iter, connectivity=connectivity, seed=seed)
+            else:
+                G, GP = G_variable_permutation(x, radius=radius, n_iter=n_iter, connectivity=connectivity, seed=seed)
+        else:
+            GP = G_permutation(x, connectivity=connectivity, n_iter=n_iter, seed=seed)[1]
     else:
         GP = (1.0 - scipy.stats.norm.cdf(np.abs(G)))*2 # scale to [0,1]
     return G, GP
 
 
+# x = np.random.rand(1000, 1000)
+# x[10:20,10:20] += 100
+# x[80:120,60:130] += 200
+# x[10:20,150:180] += 100 
+
+
+# _, GPi = G_permutation(x, connectivity=CONNECTIVITY_QUEEN, n_iter = 999, seed=42)
+# _, GPi100 = G_variable_permutation(x, 100, connectivity=CONNECTIVITY_QUEEN, n_iter = 999, seed=42)
+# _, GPi50 = G_variable_permutation(x, 50, connectivity=CONNECTIVITY_QUEEN, n_iter = 999, seed=42)
+# _, GPi25 = G_variable_permutation(x, 25, connectivity=CONNECTIVITY_QUEEN, n_iter = 999, seed=42)
+# _, GPi10 = G_variable_permutation(x, 10, connectivity=CONNECTIVITY_QUEEN, n_iter = 999, seed=42)
+# _, GPcl = G(x)
+
+# GPic = np.stack((GPi, GPi100, GPi50, GPi25, GPi10), axis=0)
+# GPim = np.min(GPic, axis=0)  # take the minimum p-value across all resolutions
+# import matplotlib.pyplot as plt
+# plt.close()
+# fig, ax = plt.subplots(2,3,figsize=(15, 10))
+# ax[0,0].imshow(GPi<0.05, cmap='hot', vmin=0, vmax=1)
+# ax[0,0].set_title('complete permuted')
+# ax[1,0].imshow(GPcl<0.05, cmap='hot', vmin=0, vmax=1)
+# ax[1,0].set_title('complete analytic')
+# ax[0,1].imshow(GPi25<0.05, cmap='hot', vmin=0, vmax=1)
+# ax[0,1].set_title('tile size 50x50')
+# ax[1,1].imshow(GPi10<0.05, cmap='hot', vmin=0, vmax=1)
+# ax[1,1].set_title('tile size 20x20')
+# ax[1,2].imshow(GPim<0.05, cmap='hot', vmin=0, vmax=1)
+# ax[1,2].set_title('minimum')
+# ax[0,2].imshow(x, cmap='hot', vmin=0, vmax=200)
+# ax[0,2].set_title('x')
+# plt.savefig('GPim.png')
+
+# x = np.random.rand(100, 100)
+# x[10:20,10:20] += 1000
+# x[40:,40:] += 100000
+# Gi, GPi = G_variable(x, n_iter=999, connectivity=CONNECTIVITY_QUEEN, seed=42, min_range=3, max_range=None, n_ranges=10)
 
 @numba.jit(nopython=True, parallel=True, cache=False)
 def H_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True, return_var=False):
