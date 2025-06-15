@@ -14,14 +14,15 @@ MARKER_LOCATIONS = {
 # x = np.arange(1000)/250-2
 # y = np.array([-np.abs(np.random.normal(i, 0.1, 1)) for i in x]).flatten()
 # y = y - np.min(y)
-# get_smooth_max(x,y)
 # get_score(x,y)
 
 @numba.njit(cache=True)
 def get_smooth_max(x,y, nmaxdist=10, nmindist=25, minp=0.01):
-    y_order = np.argsort(y)
-    y_sorted = y[y_order]
-    x_sorted = x[y_order]
+    yn = y[~np.isnan(y)]
+    xn = x[~np.isnan(y)]
+    y_order = np.argsort(yn)
+    y_sorted = yn[y_order]
+    x_sorted = xn[y_order]
     xq99 = np.quantile(x_sorted, 0.99)
     max_distance = xq99 / nmaxdist 
     min_distance = xq99 / nmindist 
@@ -34,14 +35,19 @@ def get_smooth_max(x,y, nmaxdist=10, nmindist=25, minp=0.01):
 
 
 def do_smooth(x,y, nmaxdist=10, nmindist=25, minp=0.01):
-    max_distance = np.quantile(x, 0.99) / nmaxdist 
-    min_distance = np.quantile(x, 0.99) / nmindist 
+    yn = y[~np.isnan(y)]
+    xn = x[~np.isnan(y)]
+    max_distance = np.nanquantile(xn, 0.99) / nmaxdist 
+    min_distance = np.nanquantile(xn, 0.99) / nmindist 
     y_smooth = np.zeros_like(y)
     for i in range(len(x)):
-        tdist = scipy.spatial.distance.cdist(x[[i],np.newaxis], x[:,np.newaxis], metric='euclidean')
-        used_max_distance = np.nanmax([np.nanmin([np.nanquantile(tdist, minp), max_distance]), min_distance])
-        ws = 1-np.clip(tdist/used_max_distance,0,1)
-        y_smooth[i] = np.sum(y*ws)/np.sum(ws)
+        if np.isnan(y[i]):
+            y_smooth[i] = np.nan
+        else:
+            tdist = scipy.spatial.distance.cdist(x[[i],np.newaxis], x[:,np.newaxis], metric='euclidean')[0,~np.isnan(y)]
+            used_max_distance = np.nanmax([np.nanmin([np.nanquantile(tdist, minp), max_distance]), min_distance])
+            ws = 1-np.clip(tdist/used_max_distance,0,1)
+            y_smooth[i] = np.sum(yn*ws)/np.sum(ws)
     # is_outlier = np.abs((y_smooth-y))>0.05
     # y_smooth = np.zeros_like(y)
     # for i in range(len(x)):
@@ -52,16 +58,17 @@ def do_smooth(x,y, nmaxdist=10, nmindist=25, minp=0.01):
     return y_smooth
 
 @numba.njit(cache=True)
-def get_score(x,y):
+def get_score(x,y, xy_max=None):
     # y_smooth =  do_smooth(x, y)
     # max_idx = np.argmax(y_smooth)
     # x_max = x[max_idx]
     # y_max = y_smooth[max_idx]
-    xy_max = get_smooth_max(x,y, nmaxdist=10, nmindist=25, minp=0.01)
+    if xy_max is None:
+        xy_max = get_smooth_max(x,y, nmaxdist=10, nmindist=25, minp=0.01)
 
     y_new = y.copy()
     y_new[np.logical_or(y>xy_max[1],x<xy_max[0])] = xy_max[1]
-    y_new = 1-y_new/y_new.max()
+    y_new = 1-y_new/np.nanmax(y_new)
     return y_new
 
 def calculate_score(image, mask, channelnames=None, fdr_control=True, n_iter=0, radius=None):
@@ -121,49 +128,60 @@ def calculate_score(image, mask, channelnames=None, fdr_control=True, n_iter=0, 
     }).with_columns(**{ # sum intensity
         f"{ch}_SUM": pl.col(f"{ch}_MEAN") * pl.col("AREA_PIXELS_COUNT")
         for ch in channelnames_ls
+    }).rename({ # pixels count
+            'AREA_PIXELS_COUNT': 'AREA',
+            'PERIMETER': 'AREA_EDGE',
+    }).with_columns(**{ # pixels count
+            'AREA_CORE': pl.col('AREA') - pl.col('AREA_EDGE'),
     }).with_columns(**{ # core mean intensity
-        f"{ch}_CORE_MEAN": (pl.col(f"{ch}_SUM")-(pl.col(f"{ch}_EDGE_MEAN") * pl.col("PERIMETER"))) / pl.col("AREA_PIXELS_COUNT")
+        f"{ch}_CORE_MEAN": (pl.col(f"{ch}_SUM")-(pl.col(f"{ch}_EDGE_MEAN") * pl.col("AREA_EDGE"))) / pl.col("AREA_CORE")
+        for ch in channelnames_ls
+    }).with_columns(**{ # replace NaN values in CORE_MEAN with 0
+        f"{ch}_CORE_MEAN": pl.when(pl.col(f"{ch}_CORE_MEAN").is_nan()).then(0).otherwise(pl.col(f"{ch}_CORE_MEAN"))
+        for ch in channelnames_ls
+    }).with_columns(**{ # replace NaN values in CORE_MEAN with 0
+        f"{ch}_CORE_MEAN": pl.when(pl.col(f"{ch}_CORE_MEAN").is_infinite()).then(0).otherwise(pl.col(f"{ch}_CORE_MEAN"))
         for ch in channelnames_ls
     })
+    xy_max_ls = {ch: get_smooth_max(df[f'{ch}_MEAN'].to_numpy(), df[f'{ch}_GP_MEAN'].to_numpy()) for ch in channelnames}
+
     df = df.with_columns(**{ # Calculate scores for each channel
-        f"{ch}_GP_{m}_score": get_score(df[f'{ch}_{m}'].to_numpy(), df[f'{ch}_GP_{m}'].to_numpy()) for ch in channelnames for m in ["MEAN", "EDGE_MEAN", "CORE_MEAN"]
+        f"{ch}_GP_{m}_score": get_score(df[f'{ch}_{m}'].to_numpy(), df[f'{ch}_GP_{m}'].to_numpy(), xy_max=xy_max_ls[ch]) for ch in channelnames for m in ["MEAN", "EDGE_MEAN", "CORE_MEAN"]
     }).with_columns(**{ # Calculate differences between scores Edge and Core
             f'{ch}_GP_MEAN_diff_score': pl.col(f'{ch}_GP_CORE_MEAN_score') - pl.col(f'{ch}_GP_EDGE_MEAN_score') for ch in channelnames
-    }).with_columns(**{ # pixels count
-            'AREA': pl.col('AREA_PIXELS_COUNT'),
-            'AREA_EDGE': pl.col('PERIMETER'),
-            'AREA_CORE': pl.col('AREA_PIXELS_COUNT') - pl.col('PERIMETER'),
     }).with_columns( # weights
         pl.min_horizontal("AREA_EDGE", "AREA_CORE").alias("AREA_MIN_EDGE_CORE")
     )
     return df
 
+@numba.njit(cache=True)
+def weighted_proportion(values, wts):
+    ps = 0
+    for i in range(len(values)):
+        if values[i] > 0:
+            ps += wts[i]
+    if ps > 0:
+        return ps / np.sum(wts)
+    else:
+        return 0.0
 
-
-
+@numba.njit(cache=True, parallel=True)
 def bootstrap_weighted_proportion(data, weights, n_bootstrap=1000, alpha=0.05):
     """Bootstrap approach for weighted proportion testing"""
-    
-    def weighted_proportion(values, wts):
-        indicators = (values > 0).astype(float)
-        return np.sum(indicators * wts) / np.sum(wts)
     
     # Original weighted proportion
     orig_prop = weighted_proportion(data, weights)
     
     # Bootstrap resampling
-    bootstrap_props = []
-    for _ in range(n_bootstrap):
-        # Sample with replacement using weights as probabilities
-        prob_weights = weights / np.sum(weights)
-        indices = np.random.choice(len(data), size=len(data), 
-                                 p=prob_weights, replace=True)
+    bootstrap_props = np.empty(n_bootstrap)
+    for i in numba.prange(n_bootstrap):
+        indices = np.random.choice(len(data), size=len(data),replace=True)
         
         boot_data = data[indices]
         boot_weights = weights[indices]
         
         boot_prop = weighted_proportion(boot_data, boot_weights)
-        bootstrap_props.append(boot_prop)
+        bootstrap_props[i] = boot_prop
     
     # Confidence interval
     ci_lower = np.quantile(bootstrap_props, alpha/2)
@@ -172,29 +190,42 @@ def bootstrap_weighted_proportion(data, weights, n_bootstrap=1000, alpha=0.05):
     return orig_prop, ci_lower, ci_upper, bootstrap_props
 
 
-
-def get_marker_location_df(df, channelnames, min_GP_score=0.5, alpha=0.05, min_p=0.75,n_bootstrap=1000):
+def get_marker_location_df(df, channelnames, min_GP_score=0.5, max_GP_score=1, alpha=0.05, min_p=0.5,n_bootstrap=1000, return_all=False, min_area=None, marker_base_name="_GP_MEAN_diff_score"):
     marker_locations = []
     for ch in channelnames:
         # Filter based on GP scores
         dfsub1 = df.filter(
                 (pl.col(f'{ch}_GP_EDGE_MEAN_score')>min_GP_score) | (pl.col(f'{ch}_GP_CORE_MEAN_score')>min_GP_score)
-            ).select(
-                pl.col('ObjectNumber'),
-                pl.col('AREA_MIN_EDGE_CORE'),
-                pl.col(f'{ch}_GP_MEAN_diff_score')
-        )
-        data = dfsub1[f"{ch}_GP_MEAN_diff_score"].to_numpy()
+            ).filter(
+                (pl.col(f'{ch}_GP_EDGE_MEAN_score')<max_GP_score) & (pl.col(f'{ch}_GP_CORE_MEAN_score')<max_GP_score)
+            )
+        if min_area is not None:
+            dfsub1 = dfsub1.filter(pl.col('AREA_MIN_EDGE_CORE')>min_area)
+        data = dfsub1[f"{ch}{marker_base_name}"].to_numpy()
         weights = (dfsub1["AREA_MIN_EDGE_CORE"].to_numpy()/np.sum(dfsub1["AREA_MIN_EDGE_CORE"].to_numpy()))*dfsub1.shape[0]
 
         prop, ci_low, ci_high, boot_props = bootstrap_weighted_proportion(data, weights, n_bootstrap=n_bootstrap, alpha=alpha)
         if ci_low > min_p:
-            marker_locations.append("Nuclear")
-        elif 1-ci_high > min_p:
-            marker_locations.append("Membrane")
+            marker="Nuclear"
+        elif ci_high < 1-min_p:
+            marker="Membrane"
         else:
-            marker_locations.append("Whole_cell")
-    return marker_locations
+            marker="Whole_cell"
+        if return_all:
+            marker_locations.append(pl.DataFrame({
+                "channel": ch,
+                "location": marker,
+                "n": dfsub1.shape[0],
+                "proportion": prop,
+                "ci_low": ci_low,
+                "ci_high": ci_high
+            }))
+        else:
+            marker_locations.append(marker)
+    if return_all:
+        return pl.concat(marker_locations)
+    else:
+        return marker_locations
 
 
 
