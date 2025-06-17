@@ -2,7 +2,7 @@ import numba
 import numpy as np
 import scipy
 import polars as pl
-from nyxus import Nyxus
+# from nyxus import Nyxus
 from cautils.gettisord import G
 
 MARKER_LOCATIONS = {
@@ -71,6 +71,111 @@ def get_score(x,y, xy_max=None):
     y_new = 1-y_new/np.nanmax(y_new)
     return y_new
 
+@numba.njit(cache=False)
+def bbox_label(mask):
+    maxval = int(np.max(mask)+1)
+    labels = np.zeros((maxval,2), dtype=np.uint32)
+    labels[:,0] = np.arange(maxval)
+    bboxs = np.zeros((maxval,4), dtype=np.int64)
+    bboxs[:,0] = np.max(np.array(mask.shape))+1
+    bboxs[:,1] = np.max(np.array(mask.shape))+1
+    for i in range(mask.shape[0]):
+        for j in range(mask.shape[1]):
+            if mask[i,j] != 0:
+                labels[mask[i,j],1] = 1
+                if i < bboxs[mask[i,j],0]:
+                    bboxs[mask[i,j],0] = i
+                if i+1 > bboxs[mask[i,j],2]:
+                    bboxs[mask[i,j],2] = i+1
+                if j < bboxs[mask[i,j],1]:
+                    bboxs[mask[i,j],1] = j
+                if j+1 > bboxs[mask[i,j],3]:
+                    bboxs[mask[i,j],3] = j+1
+    
+    keep = labels[:,1]==1
+    labels = labels[keep,0]
+    bboxs = bboxs[keep,:]
+    return labels, bboxs[:,:]
+
+@numba.njit(parallel=False, cache=False)
+def man_pad_zero(x):
+    xm = np.zeros((x.shape[0]+2,x.shape[1]+2), dtype=x.dtype)
+    xm[1:-1,1:-1] = x
+    return xm
+
+
+@numba.njit(cache=False)
+def get_perimeter(mask):
+    tmpmask = man_pad_zero(mask)
+    is_peri = tmpmask[1:-1,1:-1]-(tmpmask[:-2,1:-1] + tmpmask[2:,1:-1] + tmpmask[1:-1,:-2] + tmpmask[1:-1,2:])//(4*np.max(tmpmask))==1
+    return is_peri
+
+@numba.njit(cache=False)
+def get_feature_perimeter(image, mask):
+    tmpimg = np.empty((image.shape[0],image.shape[1]+2,image.shape[2]+2), dtype=image.dtype)
+    for j in range(image.shape[0]):
+        tmpimg[j,:,:] = man_pad_zero(image[j,:])
+    is_peri = get_perimeter(mask)
+    perin = np.sum(is_peri)
+    outsums = np.zeros((tmpimg.shape[0],), dtype=np.float64)
+    for l in range(tmpimg.shape[0]):
+        for i in range(1,tmpimg.shape[1]-1):
+            for j in range(1,tmpimg.shape[2]-1):
+                if is_peri[i-1,j-1]:
+                    outsums[l] += tmpimg[l,i,j]
+    return outsums, perin
+
+
+featurels = ["MEAN","EDGE_MEAN_INTENSITY","AREA_PIXELS_COUNT","PERIMETER"]
+@numba.njit(cache=False)
+def _get_features(image, mask):
+    label,bbox = bbox_label(mask)
+    edge_sums_arr = np.zeros((bbox.shape[0], image.shape[0]), dtype=np.float64)
+    edge_area_arr = np.zeros(bbox.shape[0], dtype=np.int64)
+    sum_arr = np.zeros((bbox.shape[0], image.shape[0]), dtype=np.float64)
+    area_arr = np.zeros(bbox.shape[0], dtype=np.int64)
+    for i, lab in enumerate(label):
+        outmask = (mask[bbox[i,0]:bbox[i,2], bbox[i,1]:bbox[i,3]]==label[i]).astype(np.uint8)
+        outimage = image[:,bbox[i,0]:bbox[i,2], bbox[i,1]:bbox[i,3]]
+        edge_sums_arr[i,:], edge_area_arr[i] = get_feature_perimeter(outimage, outmask)
+        area_arr[i] = np.sum(outmask)
+        for ch in range(image.shape[0]):
+            sum_arr[i,ch] = np.sum(outimage[ch,:,:]*outmask)
+    return label, sum_arr, area_arr,edge_sums_arr, edge_area_arr 
+
+# sum_arr, area_arr,edge_sums_arr, edge_area_arr  = _get_features(image, mask, bbox=None)
+
+def get_features(image, mask, channelnames):
+    label, sum_arr, area_arr,edge_sums_arr, edge_area_arr  = _get_features(image, mask)
+    df = pl.DataFrame({**{
+        "ObjectNumber": label,
+        "AREA": area_arr,
+        "AREA_EDGE": edge_area_arr,
+        "AREA_CORE": area_arr - edge_area_arr,
+        }, **{
+            f"{ch}_SUM": sum_arr[:,i] for i,ch in enumerate(channelnames)
+        }, **{
+            f"{ch}_EDGE_SUM": edge_sums_arr[:,i] for i,ch in enumerate(channelnames)
+        }
+    }).with_columns(**{
+        "AREA_CORE": pl.col("AREA") - pl.col("AREA_EDGE"),
+    }).with_columns(**{
+        f"{ch}_MEAN": pl.col(f"{ch}_SUM") / pl.col("AREA") for i,ch in enumerate(channelnames)
+    }).with_columns(**{
+        f"{ch}_EDGE_MEAN": pl.col(f"{ch}_EDGE_SUM") / pl.col("AREA_EDGE") for i,ch in enumerate(channelnames)
+    }).with_columns(**{
+        f"{ch}_CORE_SUM": pl.col(f"{ch}_SUM")-pl.col(f"{ch}_EDGE_SUM") for i,ch in enumerate(channelnames)
+    }).with_columns(**{
+        f"{ch}_CORE_MEAN": pl.col(f"{ch}_CORE_SUM") / pl.col("AREA_CORE") for i,ch in enumerate(channelnames)
+    }).with_columns(**{ # replace NaN values in CORE_MEAN with 0
+        f"{ch}_CORE_MEAN": pl.when(pl.col(f"{ch}_CORE_MEAN").is_nan()).then(0).otherwise(pl.col(f"{ch}_CORE_MEAN"))
+        for ch in channelnames
+    }).with_columns(**{ # replace NaN values in CORE_MEAN with 0
+        f"{ch}_CORE_MEAN": pl.when(pl.col(f"{ch}_CORE_MEAN").is_infinite()).then(0).otherwise(pl.col(f"{ch}_CORE_MEAN"))
+        for ch in channelnames
+    })
+    return df
+
 def calculate_score(image, mask, channelnames=None, fdr_control=True, n_iter=0, radius=None, min_pval=0.1, offset=0.1):
     assert image.ndim == 3, "Image must be a 3D numpy array (channels, height, width)"
     assert mask.ndim == 2, "Mask must be a 2D numpy array (height, width)"
@@ -98,10 +203,10 @@ def calculate_score(image, mask, channelnames=None, fdr_control=True, n_iter=0, 
     weights = np.clip(((weights-(1-min_pval)))*(1/min_pval),offset,1)
     image_weighted = image*weights
 
-    featurels = ["MEAN","EDGE_MEAN_INTENSITY","AREA_PIXELS_COUNT","PERIMETER"]
-    to_rescale_features = ["MEAN", "EDGE_MEAN_INTENSITY"]
-    index_features = [n for n in featurels if n not in to_rescale_features]
-    nyx = Nyxus(featurels, n_feature_calc_threads=16 )
+    # featurels = ["MEAN","EDGE_MEAN_INTENSITY","AREA_PIXELS_COUNT","PERIMETER"]
+    # to_rescale_features = ["MEAN", "EDGE_MEAN_INTENSITY"]
+    # index_features = [n for n in featurels if n not in to_rescale_features]
+    # nyx = Nyxus(featurels, n_feature_calc_threads=16 )
     channelnames_ls = channelnames.tolist() + [
         f"{name}_GP" for name in channelnames.tolist()
     ] + [
@@ -111,51 +216,52 @@ def calculate_score(image, mask, channelnames=None, fdr_control=True, n_iter=0, 
     ] + [
         f"{name}_weights" for name in channelnames.tolist()
     ]
-    features1 = nyx.featurize(
-        np.vstack([image*1e6,image_GP*1e6,image_GP_hot*1e6,image_weighted*1e6,weights*1e6]), # mutliply by 1e6 to avoid numerical issues
-        np.stack([mask for i in range(5*image.shape[0])]),
-        intensity_names=channelnames_ls,
-        label_names=channelnames_ls
-        )
-    df = pl.from_pandas(features1).pivot( 
-        "intensity_image",
-        index=["ROI_label"] + index_features,
-        values=to_rescale_features,
-    ).rename({
-        "ROI_label": "ObjectNumber"
-    }).rename({
-        f"{fe}_{ch}": f"{ch}_{fe}"
-        for fe in to_rescale_features for ch in channelnames_ls
-    }).with_columns(**{ # rescale features
-        f"{ch}_{fe}": pl.col(f"{ch}_{fe}") * 1e-6
-        for fe in to_rescale_features for ch in channelnames_ls
-    }).rename({ # pixels count
-            'AREA_PIXELS_COUNT': 'AREA',
-            'PERIMETER': 'AREA_EDGE',
-    }).with_columns(**{ # pixels count
-            'AREA_CORE': pl.col('AREA') - pl.col('AREA_EDGE'),
-    }).rename({
-        f"{ch}_EDGE_MEAN_INTENSITY": f"{ch}_EDGE_MEAN"
-        for ch in channelnames_ls
-    }).with_columns(**{ # sum intensity
-        f"{ch}_SUM": pl.col(f"{ch}_MEAN") * pl.col("AREA")
-        for ch in channelnames_ls
-    }).with_columns(**{ # sum intensity
-        f"{ch}_EDGE_SUM": pl.col(f"{ch}_EDGE_MEAN") * pl.col("AREA_EDGE")
-        for ch in channelnames_ls
-    }).with_columns(**{ # sum intensity
-        f"{ch}_CORE_SUM": pl.col(f"{ch}_SUM")-pl.col(f"{ch}_EDGE_SUM")
-        for ch in channelnames_ls
-    }).with_columns(**{ # core mean intensity
-        f"{ch}_CORE_MEAN": pl.col(f"{ch}_CORE_SUM") / pl.col("AREA_CORE")
-        for ch in channelnames_ls
-    }).with_columns(**{ # replace NaN values in CORE_MEAN with 0
-        f"{ch}_CORE_MEAN": pl.when(pl.col(f"{ch}_CORE_MEAN").is_nan()).then(0).otherwise(pl.col(f"{ch}_CORE_MEAN"))
-        for ch in channelnames_ls
-    }).with_columns(**{ # replace NaN values in CORE_MEAN with 0
-        f"{ch}_CORE_MEAN": pl.when(pl.col(f"{ch}_CORE_MEAN").is_infinite()).then(0).otherwise(pl.col(f"{ch}_CORE_MEAN"))
-        for ch in channelnames_ls
-    })
+    df = get_features(np.vstack([image,image_GP,image_GP_hot,image_weighted,weights]), mask, channelnames=channelnames_ls)
+    # features1 = nyx.featurize(
+    #     np.vstack([image*1e6,image_GP*1e6,image_GP_hot*1e6,image_weighted*1e6,weights*1e6]), # mutliply by 1e6 to avoid numerical issues
+    #     np.stack([mask for i in range(5*image.shape[0])]),
+    #     intensity_names=channelnames_ls,
+    #     label_names=channelnames_ls
+    #     )
+    # df = pl.from_pandas(features1).pivot( 
+    #     "intensity_image",
+    #     index=["ROI_label"] + index_features,
+    #     values=to_rescale_features,
+    # ).rename({
+    #     "ROI_label": "ObjectNumber"
+    # }).rename({
+    #     f"{fe}_{ch}": f"{ch}_{fe}"
+    #     for fe in to_rescale_features for ch in channelnames_ls
+    # }).with_columns(**{ # rescale features
+    #     f"{ch}_{fe}": pl.col(f"{ch}_{fe}") * 1e-6
+    #     for fe in to_rescale_features for ch in channelnames_ls
+    # }).rename({ # pixels count
+    #         'AREA_PIXELS_COUNT': 'AREA',
+    #         'PERIMETER': 'AREA_EDGE',
+    # }).with_columns(**{ # pixels count
+    #         'AREA_CORE': pl.col('AREA') - pl.col('AREA_EDGE'),
+    # }).rename({
+    #     f"{ch}_EDGE_MEAN_INTENSITY": f"{ch}_EDGE_MEAN"
+    #     for ch in channelnames_ls
+    # }).with_columns(**{ # sum intensity
+    #     f"{ch}_SUM": pl.col(f"{ch}_MEAN") * pl.col("AREA")
+    #     for ch in channelnames_ls
+    # }).with_columns(**{ # sum intensity
+    #     f"{ch}_EDGE_SUM": pl.col(f"{ch}_EDGE_MEAN") * pl.col("AREA_EDGE")
+    #     for ch in channelnames_ls
+    # }).with_columns(**{ # sum intensity
+    #     f"{ch}_CORE_SUM": pl.col(f"{ch}_SUM")-pl.col(f"{ch}_EDGE_SUM")
+    #     for ch in channelnames_ls
+    # }).with_columns(**{ # core mean intensity
+    #     f"{ch}_CORE_MEAN": pl.col(f"{ch}_CORE_SUM") / pl.col("AREA_CORE")
+    #     for ch in channelnames_ls
+    # }).with_columns(**{ # replace NaN values in CORE_MEAN with 0
+    #     f"{ch}_CORE_MEAN": pl.when(pl.col(f"{ch}_CORE_MEAN").is_nan()).then(0).otherwise(pl.col(f"{ch}_CORE_MEAN"))
+    #     for ch in channelnames_ls
+    # }).with_columns(**{ # replace NaN values in CORE_MEAN with 0
+    #     f"{ch}_CORE_MEAN": pl.when(pl.col(f"{ch}_CORE_MEAN").is_infinite()).then(0).otherwise(pl.col(f"{ch}_CORE_MEAN"))
+    #     for ch in channelnames_ls
+    # })
     xy_max_ls = {ch: get_smooth_max(df[f'{ch}_MEAN'].to_numpy(), df[f'{ch}_GP_MEAN'].to_numpy()) for ch in channelnames}
 
     df = df.with_columns(**{ # Calculate scores for each channel
