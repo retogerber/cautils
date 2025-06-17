@@ -71,7 +71,7 @@ def get_score(x,y, xy_max=None):
     y_new = 1-y_new/np.nanmax(y_new)
     return y_new
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def bbox_label(mask):
     maxval = int(np.max(mask)+1)
     labels = np.zeros((maxval,2), dtype=np.uint32)
@@ -97,20 +97,20 @@ def bbox_label(mask):
     bboxs = bboxs[keep,:]
     return labels, bboxs[:,:]
 
-@numba.njit(parallel=False, cache=False)
+@numba.njit(parallel=False, cache=True)
 def man_pad_zero(x):
     xm = np.zeros((x.shape[0]+2,x.shape[1]+2), dtype=x.dtype)
     xm[1:-1,1:-1] = x
     return xm
 
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def get_perimeter(mask):
     tmpmask = man_pad_zero(mask)
     is_peri = tmpmask[1:-1,1:-1]-(tmpmask[:-2,1:-1] + tmpmask[2:,1:-1] + tmpmask[1:-1,:-2] + tmpmask[1:-1,2:])//(4*np.max(tmpmask))==1
     return is_peri
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def get_feature_perimeter(image, mask):
     tmpimg = np.empty((image.shape[0],image.shape[1]+2,image.shape[2]+2), dtype=image.dtype)
     for j in range(image.shape[0]):
@@ -126,8 +126,7 @@ def get_feature_perimeter(image, mask):
     return outsums, perin
 
 
-featurels = ["MEAN","EDGE_MEAN_INTENSITY","AREA_PIXELS_COUNT","PERIMETER"]
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def _get_features(image, mask):
     label,bbox = bbox_label(mask)
     edge_sums_arr = np.zeros((bbox.shape[0], image.shape[0]), dtype=np.float64)
