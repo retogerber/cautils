@@ -71,7 +71,7 @@ def get_score(x,y, xy_max=None):
     y_new = 1-y_new/np.nanmax(y_new)
     return y_new
 
-def calculate_score(image, mask, channelnames=None, fdr_control=True, n_iter=0, radius=None):
+def calculate_score(image, mask, channelnames=None, fdr_control=True, n_iter=0, radius=None, min_pval=0.1, offset=0.1):
     assert image.ndim == 3, "Image must be a 3D numpy array (channels, height, width)"
     assert mask.ndim == 2, "Mask must be a 2D numpy array (height, width)"
     assert image.shape[1:] == mask.shape, "Image and mask dimensions must match"
@@ -94,6 +94,9 @@ def calculate_score(image, mask, channelnames=None, fdr_control=True, n_iter=0, 
             image_GP_hot[chind,:,:] = scipy.stats.false_discovery_control(image_GP_hot[chind,:,:])
         for chind in range(len(channelnames)):
             image_GP[chind,:,:] = scipy.stats.false_discovery_control(image_GP[chind,:,:])
+    weights = 1-np.clip(image_GP_hot,0,min_pval)
+    weights = np.clip(((weights-(1-min_pval)))*(1/min_pval),offset,1)
+    image_weighted = image*weights
 
     featurels = ["MEAN","EDGE_MEAN_INTENSITY","AREA_PIXELS_COUNT","PERIMETER"]
     to_rescale_features = ["MEAN", "EDGE_MEAN_INTENSITY"]
@@ -103,10 +106,14 @@ def calculate_score(image, mask, channelnames=None, fdr_control=True, n_iter=0, 
         f"{name}_GP" for name in channelnames.tolist()
     ] + [
         f"{name}_GPhot" for name in channelnames.tolist()
+    ] + [
+        f"{name}_weighted" for name in channelnames.tolist()
+    ] + [
+        f"{name}_weights" for name in channelnames.tolist()
     ]
     features1 = nyx.featurize(
-        np.vstack([image*1e6,image_GP*1e6,image_GP_hot*1e6]), # mutliply by 1e6 to avoid numerical issues
-        np.stack([mask for i in range(3*image.shape[0])]),
+        np.vstack([image*1e6,image_GP*1e6,image_GP_hot*1e6,image_weighted*1e6,weights*1e6]), # mutliply by 1e6 to avoid numerical issues
+        np.stack([mask for i in range(5*image.shape[0])]),
         intensity_names=channelnames_ls,
         label_names=channelnames_ls
         )
@@ -122,19 +129,25 @@ def calculate_score(image, mask, channelnames=None, fdr_control=True, n_iter=0, 
     }).with_columns(**{ # rescale features
         f"{ch}_{fe}": pl.col(f"{ch}_{fe}") * 1e-6
         for fe in to_rescale_features for ch in channelnames_ls
-    }).rename({
-        f"{ch}_EDGE_MEAN_INTENSITY": f"{ch}_EDGE_MEAN"
-        for ch in channelnames_ls
-    }).with_columns(**{ # sum intensity
-        f"{ch}_SUM": pl.col(f"{ch}_MEAN") * pl.col("AREA_PIXELS_COUNT")
-        for ch in channelnames_ls
     }).rename({ # pixels count
             'AREA_PIXELS_COUNT': 'AREA',
             'PERIMETER': 'AREA_EDGE',
     }).with_columns(**{ # pixels count
             'AREA_CORE': pl.col('AREA') - pl.col('AREA_EDGE'),
+    }).rename({
+        f"{ch}_EDGE_MEAN_INTENSITY": f"{ch}_EDGE_MEAN"
+        for ch in channelnames_ls
+    }).with_columns(**{ # sum intensity
+        f"{ch}_SUM": pl.col(f"{ch}_MEAN") * pl.col("AREA")
+        for ch in channelnames_ls
+    }).with_columns(**{ # sum intensity
+        f"{ch}_EDGE_SUM": pl.col(f"{ch}_EDGE_MEAN") * pl.col("AREA_EDGE")
+        for ch in channelnames_ls
+    }).with_columns(**{ # sum intensity
+        f"{ch}_CORE_SUM": pl.col(f"{ch}_SUM")-pl.col(f"{ch}_EDGE_SUM")
+        for ch in channelnames_ls
     }).with_columns(**{ # core mean intensity
-        f"{ch}_CORE_MEAN": (pl.col(f"{ch}_SUM")-(pl.col(f"{ch}_EDGE_MEAN") * pl.col("AREA_EDGE"))) / pl.col("AREA_CORE")
+        f"{ch}_CORE_MEAN": pl.col(f"{ch}_CORE_SUM") / pl.col("AREA_CORE")
         for ch in channelnames_ls
     }).with_columns(**{ # replace NaN values in CORE_MEAN with 0
         f"{ch}_CORE_MEAN": pl.when(pl.col(f"{ch}_CORE_MEAN").is_nan()).then(0).otherwise(pl.col(f"{ch}_CORE_MEAN"))

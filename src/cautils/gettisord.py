@@ -97,10 +97,12 @@ def G_permutation(x, connectivity=CONNECTIVITY_QUEEN, n_iter = 99, seed=42):
     GPi = (1+perm_G_counts[1])/(n_iter+1)
     return Gi, GPi
 
-
 @numba.njit(parallel=True, cache=True)
 def _G_variable_permutation(x, x_sum, kernel, connectivity=CONNECTIVITY_QUEEN, n_iter = 99, seed=42):
     np.random.seed(seed)
+
+    # number of neighbors to sample
+    n_samples = 8 if connectivity == CONNECTIVITY_QUEEN else 4
 
     # neighborhood sums
     xp = man_pad(x)
@@ -114,68 +116,52 @@ def _G_variable_permutation(x, x_sum, kernel, connectivity=CONNECTIVITY_QUEEN, n
     kw = kernel.shape[0]//2
     kh = kernel.shape[1]//2
 
+    kernel[kw,kh] = 0  # center pixel is not included in the kernel
+
     # initialize counts for permutation
-    perm_G_counts = np.zeros((2,Gi.shape[0],Gi.shape[1]), dtype=np.uint16)
+    perm_G_counts = np.zeros((Gi.shape[0],Gi.shape[1]), dtype=np.uint16)
+
+    # subset of x to radius of kernel + borders
+    xt0lskb = np.clip(np.arange(x.shape[0])-kw, 0, x.shape[0])
+    xt1lskb = np.clip(np.arange(x.shape[0])+kw+1, 0, x.shape[0])
+    yt0lskb = np.clip(np.arange(x.shape[1])-kh, 0, x.shape[1])
+    yt1lskb = np.clip(np.arange(x.shape[1])+kh+1, 0, x.shape[1])
+
+    # subset of kernel because of borders 
+    xt0lsb = np.clip(kw-np.arange(x.shape[0]), 0, kernel.shape[0])
+    xt1lsb = np.clip(kw+np.arange(x.shape[0],0,-1), 0, kernel.shape[0])
+    yt0lsb = np.clip(kh-np.arange(x.shape[1]), 0, kernel.shape[1])
+    yt1lsb = np.clip(kh+np.arange(x.shape[1],0,-1), 0, kernel.shape[1])
+
     # iterate over all pixels
     for xi in numba.prange(x.shape[0]):
         for yi in numba.prange(x.shape[1]):
-            # subset of x to radius of kernel + borders
-            xt0 = min([max([xi-kw,0]),x.shape[0]])
-            xt1 = min([max([xi+kw+1,0]),x.shape[0]])
-            yt0 = min([max([yi-kh,0]),x.shape[1]])
-            yt1 = min([max([yi+kh+1,0]),x.shape[1]])
-            xtmp = x[xt0:xt1, yt0:yt1]
-
-            # subset of kernel because of borders 
-            xt0 = min([max([kw-xi,0]),kernel.shape[0]])
-            xt1 = min([max([kw+(x.shape[0]-xi),0]),kernel.shape[0]])
-            yt0 = min([max([kh-yi,0]),kernel.shape[1]])
-            yt1 = min([max([kh+(x.shape[1]-yi),0]),kernel.shape[1]])
-            kerneltmp = kernel[xt0:xt1, yt0:yt1]
-
+            xtmp = x[xt0lskb[xi]:xt1lskb[xi], yt0lskb[yi]:yt1lskb[yi]]
+            kerneltmp = kernel[xt0lsb[xi]:xt1lsb[xi], yt0lsb[yi]:yt1lsb[yi]]
             # extract values from xtmp that are in the kernel
-            xtmptmp = np.empty(np.sum(kerneltmp))
-            tind = 0
-            for ti in range(xtmp.shape[0]):
-                for tj in range(xtmp.shape[1]):
-                    if kerneltmp[ti,tj] == 1:
-                        xtmptmp[tind] = xtmp[ti,tj]
-                        tind += 1
+            xtmptmp=xtmp.ravel()[np.flatnonzero(kerneltmp)]
 
-            # number of neighbors to sample
-            n_samples = 8 if connectivity == CONNECTIVITY_QUEEN else 4
+            # create random choice indices for sampling neighbors
+            rindsarr=np.random.randint(0,len(xtmptmp),(n_iter,n_samples))
+            for ni in numba.prange(n_iter):
+                uq = np.unique(rindsarr[ni])
+                if len(uq) < n_samples:
+                    # resample indices
+                    max_tries = 10
+                    while len(uq) < n_samples and max_tries > 0:
+                        rindsarr[ni] = np.random.randint(0,len(xtmptmp), n_samples)
+                        uq = np.unique(rindsarr[ni])
+                        max_tries -= 1
+
 
             # permute over neighbors
-            for rep in numba.prange(n_iter):
-                # TODO: should use sampling without replacement, but performance is very poort with np.random.choice
-                rinds=np.random.randint(0,len(xtmptmp),n_samples)
-                if connectivity == CONNECTIVITY_QUEEN:
-                    xrns_init_replacement = (
-                        x[xi,yi]+
-                        xtmptmp[rinds[0]]+
-                        xtmptmp[rinds[1]]+
-                        xtmptmp[rinds[2]]+
-                        xtmptmp[rinds[3]]+
-                        xtmptmp[rinds[4]]+
-                        xtmptmp[rinds[5]]+
-                        xtmptmp[rinds[6]]+
-                        xtmptmp[rinds[7]]
-                        )
-                else:
-                    xrns_init_replacement = (
-                        x[xi,yi]+
-                        xtmptmp[rinds[0]]+
-                        xtmptmp[rinds[1]]+
-                        xtmptmp[rinds[2]]+
-                        xtmptmp[rinds[3]]
-                        )
-                # permuted Gi
-                Gir = xrns_init_replacement/x_sum[xi,yi]
-                # compare with observed Gi
-                perm_G_counts[np.int64(Gir>Gi[xi,yi]),xi,yi] += 1
+            neighbor_sums = np.sum(xtmptmp[rindsarr.ravel()].reshape(n_iter, n_samples),axis=1)
+            permGi = (x[xi,yi] + neighbor_sums) / x_sum[xi,yi]
+            # compare with observed Gi
+            perm_G_counts[xi,yi] = np.sum(permGi>Gi[xi,yi])
 
     # calculate p-values
-    GPi = (1+perm_G_counts[1,:,:])/(n_iter+1)
+    GPi = (1+perm_G_counts)/(n_iter+1)
     return Gi, GPi
 
 
@@ -191,7 +177,10 @@ def G_variable_permutation_multiple(x, radius=[10,25,50,100], n_iter=99, connect
     Gimult = np.zeros((len(radius), x.shape[0], x.shape[1]), dtype=np.float64)
     GPimult = np.zeros((len(radius), x.shape[0], x.shape[1]), dtype=np.float64)
     for i,r in enumerate(radius):
-        Gimult[i], GPimult[i] = G_variable_permutation(x, radius=r, n_iter=n_iter, connectivity=connectivity, seed=seed)
+        if r == -1:
+            Gimult[i], GPimult[i] = G_permutation(x, n_iter=n_iter, connectivity=connectivity, seed=seed)
+        else:
+            Gimult[i], GPimult[i] = G_variable_permutation(x, radius=r, n_iter=n_iter, connectivity=connectivity, seed=seed)
     return Gimult, GPimult
 
 # G_variable_multiple(x, n_iter=9)
