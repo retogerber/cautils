@@ -105,47 +105,60 @@ def man_pad_zero(x):
 
 
 @numba.njit(cache=True)
-def get_perimeter(mask):
-    tmpmask = man_pad_zero(mask)
-    is_peri = tmpmask[1:-1,1:-1]-(tmpmask[:-2,1:-1] + tmpmask[2:,1:-1] + tmpmask[1:-1,:-2] + tmpmask[1:-1,2:])//(4*np.max(tmpmask))==1
+def get_perimeter(submask):
+    tmpsubmask = man_pad_zero(submask)
+    is_peri = tmpsubmask[1:-1,1:-1]-(tmpsubmask[:-2,1:-1] + tmpsubmask[2:,1:-1] + tmpsubmask[1:-1,:-2] + tmpsubmask[1:-1,2:])//(4*np.max(tmpsubmask))==1
     return is_peri
 
 @numba.njit(cache=True)
-def get_feature_perimeter(image, mask):
-    tmpimg = np.empty((image.shape[0],image.shape[1]+2,image.shape[2]+2), dtype=image.dtype)
-    for j in range(image.shape[0]):
-        tmpimg[j,:,:] = man_pad_zero(image[j,:])
-    is_peri = get_perimeter(mask)
+def get_feature_perimeter(subimage, submask, qs=np.array([0,0.25,0.5,0.75,1])):
+    tmpimg = np.empty((subimage.shape[0],subimage.shape[1]+2,subimage.shape[2]+2), dtype=subimage.dtype)
+    for j in range(subimage.shape[0]):
+        tmpimg[j,:,:] = man_pad_zero(subimage[j,:])
+    is_peri = get_perimeter(submask)
     perin = np.sum(is_peri)
+    perivals = np.empty((subimage.shape[0],perin), dtype=np.float64)
     outsums = np.zeros((tmpimg.shape[0],), dtype=np.float64)
-    for l in range(tmpimg.shape[0]):
-        for i in range(1,tmpimg.shape[1]-1):
-            for j in range(1,tmpimg.shape[2]-1):
-                if is_peri[i-1,j-1]:
+    ind=0
+    for i in range(1,tmpimg.shape[1]-1):
+        for j in range(1,tmpimg.shape[2]-1):
+            if is_peri[i-1,j-1]:
+                for l in range(tmpimg.shape[0]):
                     outsums[l] += tmpimg[l,i,j]
-    return outsums, perin
+                    perivals[l, ind] = tmpimg[l,i,j]
+                ind += 1
+    outqs = np.empty((tmpimg.shape[0],len(qs)), dtype=np.float64)
+    iqmean = np.zeros((tmpimg.shape[0],), dtype=np.float64)
+    if perin > 0:
+        for l in range(tmpimg.shape[0]):
+            outqs[l,:] = np.quantile(perivals[l,:], qs)
+            q1,q3 = np.quantile(perivals[l,:], [0.25, 0.75])
+            iqmean[l] = np.mean(perivals[l,:][perivals[l,:]<=(q3+(q3-q1)*1.5)])
+    return outsums, perin, outqs, iqmean
 
 
 @numba.njit(cache=True)
-def _get_features(image, mask):
+def _get_features(image, mask, qs=np.array([0.05,0.25,0.5,0.75,0.95])):
     label,bbox = bbox_label(mask)
     edge_sums_arr = np.zeros((bbox.shape[0], image.shape[0]), dtype=np.float64)
     edge_area_arr = np.zeros(bbox.shape[0], dtype=np.int64)
     sum_arr = np.zeros((bbox.shape[0], image.shape[0]), dtype=np.float64)
     area_arr = np.zeros(bbox.shape[0], dtype=np.int64)
+    iqmeans = np.zeros((bbox.shape[0], image.shape[0]), dtype=np.float64)
+    outqs = np.zeros((bbox.shape[0], image.shape[0], len(qs)), dtype=np.float64)
     for i, lab in enumerate(label):
-        outmask = (mask[bbox[i,0]:bbox[i,2], bbox[i,1]:bbox[i,3]]==label[i]).astype(np.uint8)
-        outimage = image[:,bbox[i,0]:bbox[i,2], bbox[i,1]:bbox[i,3]]
-        edge_sums_arr[i,:], edge_area_arr[i] = get_feature_perimeter(outimage, outmask)
-        area_arr[i] = np.sum(outmask)
+        submask = (mask[bbox[i,0]:bbox[i,2], bbox[i,1]:bbox[i,3]]==label[i]).astype(np.uint8)
+        subimage = image[:,bbox[i,0]:bbox[i,2], bbox[i,1]:bbox[i,3]]
+        edge_sums_arr[i,:], edge_area_arr[i], outqs[i,:,:], iqmeans[i,:] = get_feature_perimeter(subimage, submask, qs=qs)
+        area_arr[i] = np.sum(submask)
         for ch in range(image.shape[0]):
-            sum_arr[i,ch] = np.sum(outimage[ch,:,:]*outmask)
-    return label, sum_arr, area_arr,edge_sums_arr, edge_area_arr 
+            sum_arr[i,ch] = np.sum(subimage[ch,:,:]*submask)
+    return label, sum_arr, area_arr,edge_sums_arr, edge_area_arr, outqs, iqmeans 
 
-# sum_arr, area_arr,edge_sums_arr, edge_area_arr  = _get_features(image, mask, bbox=None)
 
-def get_features(image, mask, channelnames):
-    label, sum_arr, area_arr,edge_sums_arr, edge_area_arr  = _get_features(image, mask)
+
+def get_features(image, mask, channelnames, qs=np.array([0.05,0.25,0.5,0.75,0.95])):
+    label, sum_arr, area_arr,edge_sums_arr, edge_area_arr, outqs, iqmeans  = _get_features(image, mask)
     df = pl.DataFrame({**{
         "ObjectNumber": label,
         "AREA": area_arr,
@@ -155,6 +168,10 @@ def get_features(image, mask, channelnames):
             f"{ch}_SUM": sum_arr[:,i] for i,ch in enumerate(channelnames)
         }, **{
             f"{ch}_EDGE_SUM": edge_sums_arr[:,i] for i,ch in enumerate(channelnames)
+        }, **{
+            f"{ch}_EDGE_Q{int(qs[j]*100)}": outqs[:,i,j] for i,ch in enumerate(channelnames) for j in range(len(qs))
+        }, **{
+            f"{ch}_EDGE_IQMEAN": iqmeans[:,i] for i,ch in enumerate(channelnames)
         }
     }).with_columns(**{
         "AREA_CORE": pl.col("AREA") - pl.col("AREA_EDGE"),
