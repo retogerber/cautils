@@ -111,11 +111,44 @@ def get_perimeter(submask):
     return is_peri
 
 @numba.njit(cache=True)
+def _HodgesLehmannEstimator(x, y):
+    diffarr = np.empty((len(x), len(y)), dtype=np.float64)
+    for i in range(len(x)):
+        for j in range(len(y)):
+            diffarr[i, j] = x[i] - y[j]
+    return np.median(diffarr)
+
+@numba.njit(cache=True)
+def HodgesLehmannEstimator(is_peri, submask, subimage):
+    not_is_peri = np.logical_and(~is_peri, submask!=0)
+    edgevals = np.empty((subimage.shape[0], np.sum(is_peri)), dtype=np.float64)
+    corevals = np.empty((subimage.shape[0], np.sum(not_is_peri)), dtype=np.float64)
+    pind = 0
+    npind = 0
+    for i in range(subimage.shape[1]):
+        for j in range(subimage.shape[2]):
+            if is_peri[i,j]:
+                edgevals[:,pind] = subimage[:,i,j]
+                pind += 1
+            if not_is_peri[i,j]:
+                corevals[:,npind] = subimage[:,i,j]
+                npind += 1
+
+    hle = np.empty(subimage.shape[0], dtype=np.float64)
+    for i in range(subimage.shape[0]):
+        if edgevals.size == 0 or corevals.size == 0:
+            hle[i] = np.nan
+        else:
+            hle[i] = _HodgesLehmannEstimator(corevals[i], edgevals[i])
+    return hle
+    
+@numba.njit(cache=True)
 def get_feature_perimeter(subimage, submask, qs=np.array([0,0.25,0.5,0.75,1])):
     tmpimg = np.empty((subimage.shape[0],subimage.shape[1]+2,subimage.shape[2]+2), dtype=subimage.dtype)
     for j in range(subimage.shape[0]):
         tmpimg[j,:,:] = man_pad_zero(subimage[j,:])
     is_peri = get_perimeter(submask)
+    hle = HodgesLehmannEstimator(is_peri, submask, subimage)
     perin = np.sum(is_peri)
     perivals = np.empty((subimage.shape[0],perin), dtype=np.float64)
     outsums = np.zeros((tmpimg.shape[0],), dtype=np.float64)
@@ -134,10 +167,10 @@ def get_feature_perimeter(subimage, submask, qs=np.array([0,0.25,0.5,0.75,1])):
             outqs[l,:] = np.quantile(perivals[l,:], qs)
             q1,q3 = np.quantile(perivals[l,:], [0.25, 0.75])
             iqmean[l] = np.mean(perivals[l,:][perivals[l,:]<=(q3+(q3-q1)*1.5)])
-    return outsums, perin, outqs, iqmean
+    return outsums, perin, outqs, iqmean,hle
 
 
-@numba.njit(cache=True)
+@numba.njit(parallel=True, cache=True)
 def _get_features(image, mask, qs=np.array([0.05,0.25,0.5,0.75,0.95])):
     label,bbox = bbox_label(mask)
     edge_sums_arr = np.zeros((bbox.shape[0], image.shape[0]), dtype=np.float64)
@@ -146,19 +179,20 @@ def _get_features(image, mask, qs=np.array([0.05,0.25,0.5,0.75,0.95])):
     area_arr = np.zeros(bbox.shape[0], dtype=np.int64)
     iqmeans = np.zeros((bbox.shape[0], image.shape[0]), dtype=np.float64)
     outqs = np.zeros((bbox.shape[0], image.shape[0], len(qs)), dtype=np.float64)
-    for i, lab in enumerate(label):
+    hle = np.zeros((bbox.shape[0], image.shape[0]), dtype=np.float64)
+    for i in numba.prange(label.size):
         submask = (mask[bbox[i,0]:bbox[i,2], bbox[i,1]:bbox[i,3]]==label[i]).astype(np.uint8)
         subimage = image[:,bbox[i,0]:bbox[i,2], bbox[i,1]:bbox[i,3]]
-        edge_sums_arr[i,:], edge_area_arr[i], outqs[i,:,:], iqmeans[i,:] = get_feature_perimeter(subimage, submask, qs=qs)
+        edge_sums_arr[i,:], edge_area_arr[i], outqs[i,:,:], iqmeans[i,:], hle[i,:] = get_feature_perimeter(subimage, submask, qs=qs)
         area_arr[i] = np.sum(submask)
         for ch in range(image.shape[0]):
             sum_arr[i,ch] = np.sum(subimage[ch,:,:]*submask)
-    return label, sum_arr, area_arr,edge_sums_arr, edge_area_arr, outqs, iqmeans 
+    return label, sum_arr, area_arr,edge_sums_arr, edge_area_arr, outqs, iqmeans, hle 
 
 
 
 def get_features(image, mask, channelnames, qs=np.array([0.05,0.25,0.5,0.75,0.95])):
-    label, sum_arr, area_arr,edge_sums_arr, edge_area_arr, outqs, iqmeans  = _get_features(image, mask)
+    label, sum_arr, area_arr,edge_sums_arr, edge_area_arr, outqs, iqmeans, hle  = _get_features(image, mask)
     df = pl.DataFrame({**{
         "ObjectNumber": label,
         "AREA": area_arr,
@@ -172,8 +206,10 @@ def get_features(image, mask, channelnames, qs=np.array([0.05,0.25,0.5,0.75,0.95
             f"{ch}_EDGE_Q{int(qs[j]*100)}": outqs[:,i,j] for i,ch in enumerate(channelnames) for j in range(len(qs))
         }, **{
             f"{ch}_EDGE_IQMEAN": iqmeans[:,i] for i,ch in enumerate(channelnames)
+        }, **{
+            f"{ch}_HLE_CORE_EDGE": hle[:,i] for i,ch in enumerate(channelnames)
         }
-    }).with_columns(**{
+    }).lazy().with_columns(**{
         "AREA_CORE": pl.col("AREA") - pl.col("AREA_EDGE"),
     }).with_columns(**{
         f"{ch}_MEAN": pl.col(f"{ch}_SUM") / pl.col("AREA") for i,ch in enumerate(channelnames)
@@ -189,7 +225,7 @@ def get_features(image, mask, channelnames, qs=np.array([0.05,0.25,0.5,0.75,0.95
     }).with_columns(**{ # replace NaN values in CORE_MEAN with 0
         f"{ch}_CORE_MEAN": pl.when(pl.col(f"{ch}_CORE_MEAN").is_infinite()).then(0).otherwise(pl.col(f"{ch}_CORE_MEAN"))
         for ch in channelnames
-    })
+    }).collect()
     return df
 
 def calculate_score(image, mask, channelnames=None, fdr_control=True, n_iter=0, radius=None, min_pval=0.1, offset=0.1):
