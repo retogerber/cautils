@@ -384,7 +384,7 @@ def bootstrap_weighted_proportion(data, weights, n_bootstrap=1000, alpha=0.05):
     # Bootstrap resampling
     bootstrap_props = np.empty(n_bootstrap)
     for i in numba.prange(n_bootstrap):
-        indices = np.random.randint(data.size, size=data.size)
+        indices = np.random.randint(0, data.size, size=data.size)
         bootstrap_props[i] = weighted_proportion(data[indices], weights[indices])
     
     # Confidence interval
