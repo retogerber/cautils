@@ -103,6 +103,50 @@ def man_pad_zero(x):
     xm[1:-1,1:-1] = x
     return xm
 
+@numba.njit(parallel=False, cache=True)
+def get_perimeter_and_not_perimeter_values(is_peri, submask, subimage):
+    not_is_peri = np.logical_and(~is_peri, submask!=0)
+    edgevals = np.empty((subimage.shape[0], np.sum(is_peri)), dtype=np.float64)
+    corevals = np.empty((subimage.shape[0], np.sum(not_is_peri)), dtype=np.float64)
+    pind = 0
+    npind = 0
+    for i in range(subimage.shape[1]):
+        for j in range(subimage.shape[2]):
+            if is_peri[i,j]:
+                edgevals[:,pind] = subimage[:,i,j]
+                pind += 1
+            if not_is_peri[i,j]:
+                corevals[:,npind] = subimage[:,i,j]
+                npind += 1
+    return edgevals, corevals
+
+@numba.njit(parallel=False, cache=True)
+def permute_core_edge_mean_diff(is_peri, submask, subimage, n_iter=99, seed=42):
+    np.random.seed(seed)
+
+    edgevals, corevals = get_perimeter_and_not_perimeter_values(is_peri, submask, subimage)
+    n_edgevals = edgevals.shape[1]
+    n_corevals = corevals.shape[1]
+    if n_edgevals == 0 or n_corevals == 0:
+        return np.ones(subimage.shape[0])*np.nan, np.ones(subimage.shape[0])*np.nan
+    
+    vals_concat = np.empty((subimage.shape[0], n_edgevals + n_corevals), dtype=np.float64)
+    vals_concat[:,:n_corevals] = corevals
+    vals_concat[:,n_corevals:] = edgevals
+
+    observed_diff = np.empty(subimage.shape[0], dtype=np.float64)
+    for i in range(subimage.shape[0]):
+        observed_diff[i] = np.mean(corevals[i]) - np.mean(edgevals[i])
+    abs_observed_diff = np.abs(observed_diff)
+
+    abs_is_larger = np.zeros(subimage.shape[0], dtype=np.uint16)
+    for iter in numba.prange(n_iter):
+        for i in range(subimage.shape[0]):
+            perm = np.random.permutation(vals_concat[i,:])
+            abs_is_larger[i] += np.abs(np.mean(perm[:n_corevals]) - np.mean(perm[n_corevals:]))>abs_observed_diff[i]
+    pvals = (1+abs_is_larger) / (1+n_iter)
+    return observed_diff, pvals
+
 
 @numba.njit(cache=True)
 def get_perimeter(submask):
@@ -120,20 +164,7 @@ def _HodgesLehmannEstimator(x, y):
 
 @numba.njit(cache=True)
 def HodgesLehmannEstimator(is_peri, submask, subimage):
-    not_is_peri = np.logical_and(~is_peri, submask!=0)
-    edgevals = np.empty((subimage.shape[0], np.sum(is_peri)), dtype=np.float64)
-    corevals = np.empty((subimage.shape[0], np.sum(not_is_peri)), dtype=np.float64)
-    pind = 0
-    npind = 0
-    for i in range(subimage.shape[1]):
-        for j in range(subimage.shape[2]):
-            if is_peri[i,j]:
-                edgevals[:,pind] = subimage[:,i,j]
-                pind += 1
-            if not_is_peri[i,j]:
-                corevals[:,npind] = subimage[:,i,j]
-                npind += 1
-
+    edgevals, corevals = get_perimeter_and_not_perimeter_values(is_peri, submask, subimage)
     hle = np.empty(subimage.shape[0], dtype=np.float64)
     for i in range(subimage.shape[0]):
         if edgevals.size == 0 or corevals.size == 0:
@@ -149,6 +180,7 @@ def get_feature_perimeter(subimage, submask, qs=np.array([0,0.25,0.5,0.75,1])):
         tmpimg[j,:,:] = man_pad_zero(subimage[j,:])
     is_peri = get_perimeter(submask)
     hle = HodgesLehmannEstimator(is_peri, submask, subimage)
+    meandiff, meandiff_pval = permute_core_edge_mean_diff(is_peri, submask, subimage, n_iter=99)
     perin = np.sum(is_peri)
     perivals = np.empty((subimage.shape[0],perin), dtype=np.float64)
     outsums = np.zeros((tmpimg.shape[0],), dtype=np.float64)
@@ -167,7 +199,7 @@ def get_feature_perimeter(subimage, submask, qs=np.array([0,0.25,0.5,0.75,1])):
             outqs[l,:] = np.quantile(perivals[l,:], qs)
             q1,q3 = np.quantile(perivals[l,:], [0.25, 0.75])
             iqmean[l] = np.mean(perivals[l,:][perivals[l,:]<=(q3+(q3-q1)*1.5)])
-    return outsums, perin, outqs, iqmean,hle
+    return outsums, perin, outqs, iqmean, hle, meandiff, meandiff_pval
 
 
 @numba.njit(parallel=True, cache=True)
@@ -180,19 +212,21 @@ def _get_features(image, mask, qs=np.array([0.05,0.25,0.5,0.75,0.95])):
     iqmeans = np.zeros((bbox.shape[0], image.shape[0]), dtype=np.float64)
     outqs = np.zeros((bbox.shape[0], image.shape[0], len(qs)), dtype=np.float64)
     hle = np.zeros((bbox.shape[0], image.shape[0]), dtype=np.float64)
+    coreedgediff = np.zeros((bbox.shape[0], image.shape[0]), dtype=np.float64)
+    coreedgediff_pval = np.zeros((bbox.shape[0], image.shape[0]), dtype=np.float64)
     for i in numba.prange(label.size):
         submask = (mask[bbox[i,0]:bbox[i,2], bbox[i,1]:bbox[i,3]]==label[i]).astype(np.uint8)
         subimage = image[:,bbox[i,0]:bbox[i,2], bbox[i,1]:bbox[i,3]]
-        edge_sums_arr[i,:], edge_area_arr[i], outqs[i,:,:], iqmeans[i,:], hle[i,:] = get_feature_perimeter(subimage, submask, qs=qs)
+        edge_sums_arr[i,:], edge_area_arr[i], outqs[i,:,:], iqmeans[i,:], hle[i,:], coreedgediff[i,:], coreedgediff_pval[i,:] = get_feature_perimeter(subimage, submask, qs=qs)
         area_arr[i] = np.sum(submask)
         for ch in range(image.shape[0]):
             sum_arr[i,ch] = np.sum(subimage[ch,:,:]*submask)
-    return label, sum_arr, area_arr,edge_sums_arr, edge_area_arr, outqs, iqmeans, hle 
+    return label, sum_arr, area_arr,edge_sums_arr, edge_area_arr, outqs, iqmeans, hle, coreedgediff, coreedgediff_pval
 
 
 
 def get_features(image, mask, channelnames, qs=np.array([0.05,0.25,0.5,0.75,0.95])):
-    label, sum_arr, area_arr,edge_sums_arr, edge_area_arr, outqs, iqmeans, hle  = _get_features(image, mask)
+    label, sum_arr, area_arr,edge_sums_arr, edge_area_arr, outqs, iqmeans, hle, coreedgediff, coreedgediff_pval  = _get_features(image, mask)
     df = pl.DataFrame({**{
         "ObjectNumber": label,
         "AREA": area_arr,
@@ -208,6 +242,10 @@ def get_features(image, mask, channelnames, qs=np.array([0.05,0.25,0.5,0.75,0.95
             f"{ch}_EDGE_IQMEAN": iqmeans[:,i] for i,ch in enumerate(channelnames)
         }, **{
             f"{ch}_HLE_CORE_EDGE": hle[:,i] for i,ch in enumerate(channelnames)
+        }, **{
+            f"{ch}_CORE_EDGE_diff": coreedgediff[:,i] for i,ch in enumerate(channelnames)
+        }, **{
+            f"{ch}_CORE_EDGE_diff_pval": coreedgediff_pval[:,i] for i,ch in enumerate(channelnames)
         }
     }).lazy().with_columns(**{
         "AREA_CORE": pl.col("AREA") - pl.col("AREA_EDGE"),
@@ -346,13 +384,8 @@ def bootstrap_weighted_proportion(data, weights, n_bootstrap=1000, alpha=0.05):
     # Bootstrap resampling
     bootstrap_props = np.empty(n_bootstrap)
     for i in numba.prange(n_bootstrap):
-        indices = np.random.choice(len(data), size=len(data),replace=True)
-        
-        boot_data = data[indices]
-        boot_weights = weights[indices]
-        
-        boot_prop = weighted_proportion(boot_data, boot_weights)
-        bootstrap_props[i] = boot_prop
+        indices = np.random.randint(data.size, size=data.size)
+        bootstrap_props[i] = weighted_proportion(data[indices], weights[indices])
     
     # Confidence interval
     ci_lower = np.quantile(bootstrap_props, alpha/2)
