@@ -14,7 +14,7 @@ MARKER_LOCATIONS = {"Nuclear": 0, "Membrane": 1, "Whole_cell": 2}
 # get_score(x,y)
 
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def get_smooth_max(x, y, nmaxdist=10, nmindist=25, minp=0.01):
     if len(x) == 0 or len(y) == 0:
         return np.array([np.nan, np.nan])
@@ -66,7 +66,7 @@ def do_smooth(x, y, nmaxdist=10, nmindist=25, minp=0.01):
     return y_smooth
 
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def get_score(x, y, xy_max=None):
     # y_smooth =  do_smooth(x, y)
     # max_idx = np.argmax(y_smooth)
@@ -83,7 +83,7 @@ def get_score(x, y, xy_max=None):
     return y_new
 
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def bbox_label(mask):
     maxval = int(np.max(mask) + 1)
     labels = np.zeros((maxval, 2), dtype=np.uint32)
@@ -110,14 +110,14 @@ def bbox_label(mask):
     return labels, bboxs[:, :]
 
 
-@numba.njit(parallel=False, cache=False)
+@numba.njit(parallel=False, cache=True)
 def man_pad_zero(x):
     xm = np.zeros((x.shape[0] + 2, x.shape[1] + 2), dtype=x.dtype)
     xm[1:-1, 1:-1] = x
     return xm
 
 
-@numba.njit(parallel=False, cache=False)
+@numba.njit(parallel=False, cache=True)
 def get_perimeter_and_not_perimeter_values(is_peri, submask, subimage):
     not_is_peri = np.logical_and(~is_peri, submask != 0)
     edgevals = np.empty((subimage.shape[0], np.sum(is_peri)), dtype=np.float64)
@@ -135,7 +135,7 @@ def get_perimeter_and_not_perimeter_values(is_peri, submask, subimage):
     return edgevals, corevals
 
 
-@numba.njit(parallel=False, cache=False)
+@numba.njit(parallel=False, cache=True)
 def permute_core_edge_mean_diff(is_peri, submask, subimage, n_iter=99, seed=42):
     np.random.seed(seed)
 
@@ -170,7 +170,7 @@ def permute_core_edge_mean_diff(is_peri, submask, subimage, n_iter=99, seed=42):
     return observed_diff, pvals
 
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def get_perimeter(submask):
     tmpsubmask = man_pad_zero(submask)
     is_peri = (
@@ -187,7 +187,7 @@ def get_perimeter(submask):
     return is_peri
 
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def _HodgesLehmannEstimator(x, y):
     diffarr = np.empty((len(x), len(y)), dtype=np.float64)
     for i in range(len(x)):
@@ -196,7 +196,7 @@ def _HodgesLehmannEstimator(x, y):
     return np.median(diffarr)
 
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def HodgesLehmannEstimator(is_peri, submask, subimage):
     edgevals, corevals = get_perimeter_and_not_perimeter_values(
         is_peri, submask, subimage
@@ -210,7 +210,7 @@ def HodgesLehmannEstimator(is_peri, submask, subimage):
     return hle
 
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def get_intensities_perimeter(subimage, is_peri, qs=np.array([0, 0.25, 0.5, 0.75, 1])):
     tmpimg = np.empty(
         (subimage.shape[0], subimage.shape[1] + 2, subimage.shape[2] + 2),
@@ -241,7 +241,7 @@ def get_intensities_perimeter(subimage, is_peri, qs=np.array([0, 0.25, 0.5, 0.75
     return outsums, perin, outqs, iqmean
 
 
-@numba.njit(parallel=True, cache=False)
+@numba.njit(parallel=True, cache=True)
 def _get_features(
     image,
     mask,
@@ -425,7 +425,7 @@ def calculate_features(
     assert mask.ndim == 2, "Mask must be a 2D numpy array (height, width)"
     assert image.shape[1:] == mask.shape, "Image and mask dimensions must match"
     if channelnames is None:
-        channelnames = [f"Channel_{i}" for i in range(image.shape[0])]
+        channelnames = np.array([f"Channel_{i}" for i in range(image.shape[0])])
     elif len(channelnames) != image.shape[0]:
         raise ValueError(
             "Length of channelnames must match the number of channels in the image"
@@ -548,7 +548,7 @@ def calculate_score(
     )
 
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def weighted_proportion(values, wts):
     ps = 0
     for i in range(len(values)):
@@ -560,7 +560,7 @@ def weighted_proportion(values, wts):
         return 0.0
 
 
-@numba.njit(cache=False, parallel=True)
+@numba.njit(cache=True, parallel=True)
 def bootstrap_weighted_proportion(data, weights, n_bootstrap=1000, alpha=0.05):
     """Bootstrap approach for weighted proportion testing"""
 

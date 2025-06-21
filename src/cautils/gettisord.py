@@ -11,7 +11,7 @@ GPVAL_TYPE_COLD = 2
 GPVAL_TYPE_BOTH = 4
 
 
-@numba.njit(parallel=False, cache=False)
+@numba.njit(parallel=False, cache=True)
 def man_pad(x):
     xm = np.empty((x.shape[0] + 2, x.shape[1] + 2), dtype=x.dtype)
     xm[1:-1, 1:-1] = x
@@ -26,7 +26,7 @@ def man_pad(x):
     return xm
 
 
-@numba.njit(parallel=True, cache=False)
+@numba.njit(parallel=True, cache=True)
 def G_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True):
     x_sum = np.float64(np.sum(x))
 
@@ -64,7 +64,7 @@ def G_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True):
 # G(x, connectivity=CONNECTIVITY_QUEEN, normalize=True)
 
 
-@numba.njit(cache=False)
+@numba.njit(cache=True)
 def split_GPtype(GPtype):
     # decompose GPtype into its components
     which_test = np.zeros(3, dtype=np.uint8)
@@ -75,7 +75,7 @@ def split_GPtype(GPtype):
     return which_test
 
 
-@numba.njit(parallel=True, cache=False)
+@numba.njit(parallel=True, cache=True)
 def G_permutation(
     x, connectivity=CONNECTIVITY_QUEEN, n_iter=99, seed=42, GPtype=GPVAL_TYPE_BOTH
 ):
@@ -167,7 +167,7 @@ def G_permutation(
     return Gi, GPi
 
 
-@numba.njit(parallel=True, cache=False)
+@numba.njit(parallel=True, cache=True)
 def _G_variable_permutation(
     x,
     x_sum,
@@ -445,7 +445,7 @@ def G(
 # Gi, GPi = G_variable(x, n_iter=999, connectivity=CONNECTIVITY_QUEEN, seed=42, min_range=3, max_range=None, n_ranges=10)
 
 
-@numba.njit(parallel=True, cache=False)
+@numba.njit(parallel=True, cache=True)
 def H_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True, return_var=False):
     w1 = 4 * connectivity + 1
 
@@ -508,7 +508,7 @@ def H_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True, return_var=F
 # H(x, connectivity=CONNECTIVITY_QUEEN, normalize=False, return_var=False)
 
 
-@numba.njit(parallel=True, cache=False)
+@numba.njit(parallel=True, cache=True)
 def H_permutation(x, connectivity=CONNECTIVITY_QUEEN, n_iter=99, seed=42):
     np.random.seed(seed)
     w1 = 4 * connectivity + 1
