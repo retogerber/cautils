@@ -6,61 +6,127 @@ import skimage
 CONNECTIVITY_ROOK = 1
 CONNECTIVITY_QUEEN = 2
 
+GPVAL_TYPE_HOT = 1
+GPVAL_TYPE_COLD = 2
+GPVAL_TYPE_BOTH = 4
 
-@numba.njit(parallel=False, cache=True)
+
+@numba.njit(parallel=False, cache=False)
 def man_pad(x):
-    xm = np.empty((x.shape[0]+2,x.shape[1]+2), dtype=x.dtype)
-    xm[1:-1,1:-1] = x
-    xm[1:-1,0] = x[:,0]
-    xm[1:-1,-1] = x[:,-1]
-    xm[0,1:-1] = x[0,:]
-    xm[-1,1:-1] = x[-1,:]
-    xm[0,0] = x[0,0]
-    xm[0,-1] = x[0,-1]
-    xm[-1,0] = x[-1,0]
-    xm[-1,-1] = x[-1,-1]
+    xm = np.empty((x.shape[0] + 2, x.shape[1] + 2), dtype=x.dtype)
+    xm[1:-1, 1:-1] = x
+    xm[1:-1, 0] = x[:, 0]
+    xm[1:-1, -1] = x[:, -1]
+    xm[0, 1:-1] = x[0, :]
+    xm[-1, 1:-1] = x[-1, :]
+    xm[0, 0] = x[0, 0]
+    xm[0, -1] = x[0, -1]
+    xm[-1, 0] = x[-1, 0]
+    xm[-1, -1] = x[-1, -1]
     return xm
 
-@numba.njit(parallel=True, cache=True)
+
+@numba.njit(parallel=True, cache=False)
 def G_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True):
     x_sum = np.float64(np.sum(x))
 
     # neighborhood sums
     xp = man_pad(x)
     if connectivity == CONNECTIVITY_QUEEN:
-        xns = (xp[1:-1,1:-1] + xp[:-2,1:-1]+xp[1:-1,:-2]+xp[2:,1:-1]+xp[1:-1,2:]+xp[:-2,:-2]+xp[:-2,2:]+xp[2:,:-2]+xp[2:,2:])
+        xns = (
+            xp[1:-1, 1:-1]
+            + xp[:-2, 1:-1]
+            + xp[1:-1, :-2]
+            + xp[2:, 1:-1]
+            + xp[1:-1, 2:]
+            + xp[:-2, :-2]
+            + xp[:-2, 2:]
+            + xp[2:, :-2]
+            + xp[2:, 2:]
+        )
     else:
-        xns = (xp[1:-1,1:-1] + xp[:-2,1:-1]+xp[1:-1,:-2]+xp[2:,1:-1]+xp[1:-1,2:])
+        xns = (
+            xp[1:-1, 1:-1] + xp[:-2, 1:-1] + xp[1:-1, :-2] + xp[2:, 1:-1] + xp[1:-1, 2:]
+        )
 
     if normalize:
-        w1 = 4*connectivity + 1
+        w1 = 4 * connectivity + 1
         n = np.float64(x.size)
         x_mean = x_sum / n
         x2_sum = np.sum(x**2)
-        s2 = x2_sum/n-x_mean**2
+        s2 = x2_sum / n - x_mean**2
 
-        return (xns-x_mean*w1)/np.sqrt(s2*((n*w1 - w1**2)/(n-1)))
+        return (xns - x_mean * w1) / np.sqrt(s2 * ((n * w1 - w1**2) / (n - 1)))
     else:
-        return xns/x_sum
+        return xns / x_sum
+
 
 # G(x, connectivity=CONNECTIVITY_QUEEN, normalize=True)
 
-@numba.njit(parallel=True, cache=True)
-def G_permutation(x, connectivity=CONNECTIVITY_QUEEN, n_iter = 99, seed=42):
+
+@numba.njit(cache=False)
+def split_GPtype(GPtype):
+    # decompose GPtype into its components
+    which_test = np.zeros(3, dtype=np.uint8)
+    tmpGPtype = GPtype
+    for i, t in enumerate([GPVAL_TYPE_BOTH, GPVAL_TYPE_COLD, GPVAL_TYPE_HOT]):
+        which_test[i] = tmpGPtype // t
+        tmpGPtype -= (tmpGPtype // t) * t
+    return which_test
+
+
+@numba.njit(parallel=True, cache=False)
+def G_permutation(
+    x, connectivity=CONNECTIVITY_QUEEN, n_iter=99, seed=42, GPtype=GPVAL_TYPE_BOTH
+):
+    """
+    Calculate the G statistic and its p-value for a given input array x using permutation testing.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        Input array for which the G statistic and p-value are calculated.
+    connectivity : int, optional
+        Connectivity type for neighborhood calculation. Default is CONNECTIVITY_QUEEN.
+    n_iter : int, optional
+        Number of iterations for permutation testing. Default is 99.
+    seed : int, optional
+        Random seed for reproducibility. Default is 42.
+    GPtype : int, optional
+        Type of G statistic to calculate. Can be either GPVAL_TYPE_BOTH, GPVAL_TYPE_COLD, or GPVAL_TYPE_HOT, or the sum of any of those three. For example GPVAL_TYPE_HOT+GPVAL_TYPE_COLD will return both hot and cold p-values.
+        Default is GPVAL_TYPE_BOTH.
+    Returns
+    -------
+    Gi : np.ndarray
+        G statistic for the input array x.
+    GPi : np.ndarray
+        P-value for the G statistic.
+    """
     np.random.seed(seed)
     x_sum = np.float64(np.sum(x))
 
     # neighborhood sums
     xp = man_pad(x)
     if connectivity == CONNECTIVITY_QUEEN:
-        xns = (xp[:-2,1:-1]+xp[1:-1,:-2]+xp[2:,1:-1]+xp[1:-1,2:]+xp[:-2,:-2]+xp[:-2,2:]+xp[2:,:-2]+xp[2:,2:])
+        xns = (
+            xp[:-2, 1:-1]
+            + xp[1:-1, :-2]
+            + xp[2:, 1:-1]
+            + xp[1:-1, 2:]
+            + xp[:-2, :-2]
+            + xp[:-2, 2:]
+            + xp[2:, :-2]
+            + xp[2:, 2:]
+        )
     else:
-        xns = (xp[:-2,1:-1]+xp[1:-1,:-2]+xp[2:,1:-1]+xp[1:-1,2:])
-    Gi = xns/x_sum
+        xns = xp[:-2, 1:-1] + xp[1:-1, :-2] + xp[2:, 1:-1] + xp[1:-1, 2:]
+    Gi = xns / x_sum
 
-    perm_G_counts = np.zeros((2,Gi.shape[0],Gi.shape[1]), dtype=np.uint16)
+    # decompose GPtype into its components
+    which_test = split_GPtype(GPtype)
+
+    perm_G_counts = np.zeros((6, Gi.shape[0], Gi.shape[1]), dtype=np.uint16)
     for rep in numba.prange(n_iter):
-    # for rep in range(n_iter):
         # random permutation of x
         xrp_test = man_pad(np.random.permutation(x.flatten()).reshape(x.shape))
         # since xrp_test is a permutation of x, we can use the same neighborhood means
@@ -70,35 +136,47 @@ def G_permutation(x, connectivity=CONNECTIVITY_QUEEN, n_iter = 99, seed=42):
                 # new neighborhood mean
                 if connectivity == CONNECTIVITY_QUEEN:
                     xrns_init_replacement = (
-                        x[xi,yi]+
-                        xrp_test[xi+1-1,yi+1]+
-                        xrp_test[xi+1,yi+1-1]+
-                        xrp_test[xi+1+1,yi+1]+
-                        xrp_test[xi+1,yi+1+1]+
-                        xrp_test[xi+1-1,yi+1-1]+
-                        xrp_test[xi+1+1,yi+1-1]+
-                        xrp_test[xi+1-1,yi+1+1]+
-                        xrp_test[xi+1+1,yi+1+1]
-                        )
+                        x[xi, yi]
+                        + xrp_test[xi + 1 - 1, yi + 1]
+                        + xrp_test[xi + 1, yi + 1 - 1]
+                        + xrp_test[xi + 1 + 1, yi + 1]
+                        + xrp_test[xi + 1, yi + 1 + 1]
+                        + xrp_test[xi + 1 - 1, yi + 1 - 1]
+                        + xrp_test[xi + 1 + 1, yi + 1 - 1]
+                        + xrp_test[xi + 1 - 1, yi + 1 + 1]
+                        + xrp_test[xi + 1 + 1, yi + 1 + 1]
+                    )
                 else:
                     xrns_init_replacement = (
-                        x[xi,yi]+
-                        xrp_test[xi+1-1,yi+1]+
-                        xrp_test[xi+1,yi+1-1]+
-                        xrp_test[xi+1+1,yi+1]+
-                        xrp_test[xi+1,yi+1+1]
-                        )
-                tmp_sum = x_sum - xrp_test[xi+1,yi+1] + x[xi,yi]
-                Gir = xrns_init_replacement/tmp_sum
+                        x[xi, yi]
+                        + xrp_test[xi + 1 - 1, yi + 1]
+                        + xrp_test[xi + 1, yi + 1 - 1]
+                        + xrp_test[xi + 1 + 1, yi + 1]
+                        + xrp_test[xi + 1, yi + 1 + 1]
+                    )
+                tmp_sum = x_sum - xrp_test[xi + 1, yi + 1] + x[xi, yi]
+                Gir = xrns_init_replacement / tmp_sum
 
                 # compare with observed Gi
-                perm_G_counts[np.int64(Gir>Gi[xi,yi]),xi,yi] += 1
+                perm_G_counts[np.int64(np.abs(Gir) > np.abs(Gi[xi, yi])), xi, yi] += 1
+                perm_G_counts[np.int64(Gir < Gi[xi, yi]) + 2, xi, yi] += 1
+                perm_G_counts[np.int64(Gir > Gi[xi, yi]) + 4, xi, yi] += 1
 
-    GPi = (1+perm_G_counts[1])/(n_iter+1)
+    # only return the requested p-values
+    GPi = (1 + perm_G_counts[np.where(which_test)[0] * 2 + 1, :, :]) / (n_iter + 1)
     return Gi, GPi
 
-@numba.njit(parallel=True, cache=True)
-def _G_variable_permutation(x, x_sum, kernel, connectivity=CONNECTIVITY_QUEEN, n_iter = 99, seed=42):
+
+@numba.njit(parallel=True, cache=False)
+def _G_variable_permutation(
+    x,
+    x_sum,
+    kernel,
+    connectivity=CONNECTIVITY_QUEEN,
+    n_iter=99,
+    seed=42,
+    GPtype=GPVAL_TYPE_BOTH,
+):
     np.random.seed(seed)
 
     # number of neighbors to sample
@@ -107,81 +185,129 @@ def _G_variable_permutation(x, x_sum, kernel, connectivity=CONNECTIVITY_QUEEN, n
     # neighborhood sums
     xp = man_pad(x)
     if connectivity == CONNECTIVITY_QUEEN:
-        xns = (xp[:-2,1:-1]+xp[1:-1,:-2]+xp[2:,1:-1]+xp[1:-1,2:]+xp[:-2,:-2]+xp[:-2,2:]+xp[2:,:-2]+xp[2:,2:])
+        xns = (
+            xp[:-2, 1:-1]
+            + xp[1:-1, :-2]
+            + xp[2:, 1:-1]
+            + xp[1:-1, 2:]
+            + xp[:-2, :-2]
+            + xp[:-2, 2:]
+            + xp[2:, :-2]
+            + xp[2:, 2:]
+        )
     else:
-        xns = (xp[:-2,1:-1]+xp[1:-1,:-2]+xp[2:,1:-1]+xp[1:-1,2:])
+        xns = xp[:-2, 1:-1] + xp[1:-1, :-2] + xp[2:, 1:-1] + xp[1:-1, 2:]
     # observed Gi
-    Gi = xns/x_sum
+    Gi = xns / x_sum
 
-    kw = kernel.shape[0]//2
-    kh = kernel.shape[1]//2
+    kw = kernel.shape[0] // 2
+    kh = kernel.shape[1] // 2
 
-    kernel[kw,kh] = 0  # center pixel is not included in the kernel
+    kernel[kw, kh] = 0  # center pixel is not included in the kernel
+
+    # decompose GPtype into its components
+    which_test = split_GPtype(GPtype)
 
     # initialize counts for permutation
-    perm_G_counts = np.zeros((Gi.shape[0],Gi.shape[1]), dtype=np.uint16)
+    perm_G_counts = np.zeros((3, Gi.shape[0], Gi.shape[1]), dtype=np.uint16)
 
     # subset of x to radius of kernel + borders
-    xt0lskb = np.clip(np.arange(x.shape[0])-kw, 0, x.shape[0])
-    xt1lskb = np.clip(np.arange(x.shape[0])+kw+1, 0, x.shape[0])
-    yt0lskb = np.clip(np.arange(x.shape[1])-kh, 0, x.shape[1])
-    yt1lskb = np.clip(np.arange(x.shape[1])+kh+1, 0, x.shape[1])
+    xt0lskb = np.clip(np.arange(x.shape[0]) - kw, 0, x.shape[0])
+    xt1lskb = np.clip(np.arange(x.shape[0]) + kw + 1, 0, x.shape[0])
+    yt0lskb = np.clip(np.arange(x.shape[1]) - kh, 0, x.shape[1])
+    yt1lskb = np.clip(np.arange(x.shape[1]) + kh + 1, 0, x.shape[1])
 
-    # subset of kernel because of borders 
-    xt0lsb = np.clip(kw-np.arange(x.shape[0]), 0, kernel.shape[0])
-    xt1lsb = np.clip(kw+np.arange(x.shape[0],0,-1), 0, kernel.shape[0])
-    yt0lsb = np.clip(kh-np.arange(x.shape[1]), 0, kernel.shape[1])
-    yt1lsb = np.clip(kh+np.arange(x.shape[1],0,-1), 0, kernel.shape[1])
+    # subset of kernel because of borders
+    xt0lsb = np.clip(kw - np.arange(x.shape[0]), 0, kernel.shape[0])
+    xt1lsb = np.clip(kw + np.arange(x.shape[0], 0, -1), 0, kernel.shape[0])
+    yt0lsb = np.clip(kh - np.arange(x.shape[1]), 0, kernel.shape[1])
+    yt1lsb = np.clip(kh + np.arange(x.shape[1], 0, -1), 0, kernel.shape[1])
 
     # iterate over all pixels
     for xi in numba.prange(x.shape[0]):
         for yi in numba.prange(x.shape[1]):
-            xtmp = x[xt0lskb[xi]:xt1lskb[xi], yt0lskb[yi]:yt1lskb[yi]]
-            kerneltmp = kernel[xt0lsb[xi]:xt1lsb[xi], yt0lsb[yi]:yt1lsb[yi]]
+            xtmp = x[xt0lskb[xi] : xt1lskb[xi], yt0lskb[yi] : yt1lskb[yi]]
+            kerneltmp = kernel[xt0lsb[xi] : xt1lsb[xi], yt0lsb[yi] : yt1lsb[yi]]
             # extract values from xtmp that are in the kernel
-            xtmptmp=xtmp.ravel()[np.flatnonzero(kerneltmp)]
+            xtmptmp = xtmp.ravel()[np.flatnonzero(kerneltmp)]
 
             # create random choice indices for sampling neighbors
-            rindsarr=np.random.randint(0,len(xtmptmp),(n_iter,n_samples))
+            rindsarr = np.random.randint(0, len(xtmptmp), (n_iter, n_samples))
             for ni in numba.prange(n_iter):
                 uq = np.unique(rindsarr[ni])
                 if len(uq) < n_samples:
                     # resample indices
                     max_tries = 10
                     while len(uq) < n_samples and max_tries > 0:
-                        rindsarr[ni] = np.random.randint(0,len(xtmptmp), n_samples)
+                        rindsarr[ni] = np.random.randint(0, len(xtmptmp), n_samples)
                         uq = np.unique(rindsarr[ni])
                         max_tries -= 1
 
-
             # permute over neighbors
-            neighbor_sums = np.sum(xtmptmp[rindsarr.ravel()].reshape(n_iter, n_samples),axis=1)
-            permGi = (x[xi,yi] + neighbor_sums) / x_sum[xi,yi]
+            neighbor_sums = np.sum(
+                xtmptmp[rindsarr.ravel()].reshape(n_iter, n_samples), axis=1
+            )
+            permGi = (x[xi, yi] + neighbor_sums) / x_sum[xi, yi]
             # compare with observed Gi
-            perm_G_counts[xi,yi] = np.sum(permGi>Gi[xi,yi])
+            perm_G_counts[0, xi, yi] = np.sum(np.abs(permGi) > np.abs(Gi[xi, yi]))
+            perm_G_counts[1, xi, yi] = np.sum(permGi < Gi[xi, yi])
+            perm_G_counts[2, xi, yi] = np.sum(permGi > Gi[xi, yi])
 
-    # calculate p-values
-    GPi = (1+perm_G_counts)/(n_iter+1)
+    # only return the requested p-values
+    GPi = (1 + perm_G_counts[np.arange(3)[np.where(which_test)[0]], :, :]) / (
+        n_iter + 1
+    )
     return Gi, GPi
 
 
-def G_variable_permutation(x, radius=50, n_iter=99, connectivity=CONNECTIVITY_QUEEN, seed=42):
-    kernel = np.zeros((2*radius+1,2*radius+1), dtype=np.uint8)
-    rr, cc = skimage.draw.disk((radius, radius), radius+0.5)
+def G_variable_permutation(
+    x,
+    radius=50,
+    n_iter=99,
+    connectivity=CONNECTIVITY_QUEEN,
+    seed=42,
+    GPtype=GPVAL_TYPE_BOTH,
+):
+    kernel = np.zeros((2 * radius + 1, 2 * radius + 1), dtype=np.uint8)
+    rr, cc = skimage.draw.disk((radius, radius), radius + 0.5)
     kernel[rr, cc] = 1
-    x_sum = scipy.signal.fftconvolve(x, kernel, mode='same')
+    x_sum = scipy.signal.fftconvolve(x, kernel, mode="same")
 
-    return _G_variable_permutation(x, x_sum, kernel, connectivity=connectivity, n_iter = n_iter, seed=seed)
+    return _G_variable_permutation(
+        x,
+        x_sum,
+        kernel,
+        connectivity=connectivity,
+        n_iter=n_iter,
+        seed=seed,
+        GPtype=GPtype,
+    )
 
-def G_variable_permutation_multiple(x, radius=[10,25,50,100], n_iter=99, connectivity=CONNECTIVITY_QUEEN, seed=42):
+
+def G_variable_permutation_multiple(
+    x,
+    radius=[10, 25, 50, 100],
+    n_iter=99,
+    connectivity=CONNECTIVITY_QUEEN,
+    seed=42,
+    GPtype=GPVAL_TYPE_BOTH,
+):
+    which_test = split_GPtype(GPtype)
     Gimult = np.zeros((len(radius), x.shape[0], x.shape[1]), dtype=np.float64)
-    GPimult = np.zeros((len(radius), x.shape[0], x.shape[1]), dtype=np.float64)
-    for i,r in enumerate(radius):
+    GPimult = np.zeros(
+        (len(radius), np.sum(which_test), x.shape[0], x.shape[1]), dtype=np.float64
+    )
+    for i, r in enumerate(radius):
         if r == -1:
-            Gimult[i], GPimult[i] = G_permutation(x, n_iter=n_iter, connectivity=connectivity, seed=seed)
+            Gimult[i], GPimult[i] = G_permutation(
+                x, n_iter=n_iter, connectivity=connectivity, seed=seed
+            )
         else:
-            Gimult[i], GPimult[i] = G_variable_permutation(x, radius=r, n_iter=n_iter, connectivity=connectivity, seed=seed)
+            Gimult[i], GPimult[i] = G_variable_permutation(
+                x, radius=r, n_iter=n_iter, connectivity=connectivity, seed=seed
+            )
     return Gimult, GPimult
+
 
 # G_variable_multiple(x, n_iter=9)
 
@@ -189,33 +315,102 @@ def G_variable_permutation_multiple(x, radius=[10,25,50,100], n_iter=99, connect
 # GPim = np.min(GPic, axis=0)  # take the minimum p-value across all resolutions
 
 
-def G(x, n_iter=0, radius = None, connectivity=CONNECTIVITY_QUEEN, seed=42, aggregation="min"):
+def G(
+    x,
+    n_iter=0,
+    radius=None,
+    connectivity=CONNECTIVITY_QUEEN,
+    seed=42,
+    aggregation="min",
+    GPtype=GPVAL_TYPE_BOTH,
+):
+    """
+    Calculate the G statistic and its p-value (default: hot spots) for a given input array x.
+    Parameters
+    ----------
+    x : np.ndarray
+        Input array for which the G statistic and p-value are calculated.
+    n_iter : int, optional
+        Number of iterations for permutation testing. If 0, the classical G statistic is calculated.
+    radius : int or list of int, optional
+        Radius for variable permutation. If None, the classical G statistic is calculated.
+    connectivity : int, optional
+        Connectivity type for neighborhood calculation. Default is CONNECTIVITY_QUEEN.
+    seed : int, optional
+        Random seed for reproducibility. Default is 42.
+    aggregation : str, optional
+        Aggregation method for multiple radius values. Can be 'min' or 'mean'. Default is 'min'.
+    GPtype : str, optional
+        Type of G statistic to calculate. Can be 'hot', 'cold', or 'both'. Default is 'hot'.
+    Returns
+    -------
+    G : np.ndarray
+        G statistic for the input array x.
+    GP : np.ndarray
+        P-value for the G statistic.
+    """
     assert aggregation in ["min", "mean"], "Aggregation must be either 'min' or 'mean'."
+    which_test = split_GPtype(GPtype)
+    all_tests = np.array([GPVAL_TYPE_BOTH, GPVAL_TYPE_COLD, GPVAL_TYPE_HOT])
     if n_iter > 0:
         if radius is not None:
             if isinstance(radius, (list, tuple)):
-                Gm, GPm = G_variable_permutation_multiple(x, radius=radius, n_iter=n_iter, connectivity=connectivity, seed=seed)
+                Gm, GPm = G_variable_permutation_multiple(
+                    x,
+                    radius=radius,
+                    n_iter=n_iter,
+                    connectivity=connectivity,
+                    seed=seed,
+                    GPtype=GPtype,
+                )
                 if aggregation == "mean":
                     GP = np.mean(GPm, axis=0)
                     G = np.mean(Gm, axis=0)
                 else:
                     inds = np.argmin(GPm, axis=0)
-                    GP = GPm[inds, np.arange(x.shape[0])[:, None], np.arange(x.shape[1])]
+                    GP = GPm[
+                        inds, :, np.arange(x.shape[0])[:, None], np.arange(x.shape[1])
+                    ]
                     G = Gm[inds, np.arange(x.shape[0])[:, None], np.arange(x.shape[1])]
             else:
-                G, GP = G_variable_permutation(x, radius=radius, n_iter=n_iter, connectivity=connectivity, seed=seed)
+                G, GP = G_variable_permutation(
+                    x,
+                    radius=radius,
+                    n_iter=n_iter,
+                    connectivity=connectivity,
+                    seed=seed,
+                    GPtype=GPtype,
+                )
         else:
-            G, GP = G_permutation(x, connectivity=connectivity, n_iter=n_iter, seed=seed)
+            G, GP = G_permutation(
+                x, connectivity=connectivity, n_iter=n_iter, seed=seed, GPtype=GPtype
+            )
     else:
         G = G_classical(x, connectivity=connectivity, normalize=True)
-        GP = (1.0 - scipy.stats.norm.cdf(np.abs(G)))*2 # scale to [0,1]
+        GPtmp = (1.0 - scipy.stats.norm.cdf(np.abs(G))) * 2  # scale to [0,1]
+        GP = np.zeros((np.sum(which_test), x.shape[0], x.shape[1]), dtype=np.float64)
+        if GPVAL_TYPE_BOTH in all_tests[np.where(which_test == 1)]:
+            GP[0] = GPtmp
+        if (
+            GPVAL_TYPE_COLD in all_tests[np.where(which_test == 1)]
+            or GPVAL_TYPE_HOT in all_tests[np.where(which_test == 1)]
+        ):
+            # scale to [0,0.5] and invert
+            GP_cold = 1 - GPtmp.copy() / 2
+            # values where G is negative are scaled to [0.5,1] : cold spots
+            GP_cold[G < 0] = 0.5 + (0.5 - GP_cold[G < 0])
+            if GPVAL_TYPE_COLD in all_tests[np.where(which_test == 1)]:
+                GP[GPVAL_TYPE_COLD == all_tests[np.where(which_test == 1)]] = GP_cold
+            # invert to get hot spots
+            if GPVAL_TYPE_HOT in all_tests[np.where(which_test == 1)]:
+                GP[GPVAL_TYPE_HOT == all_tests[np.where(which_test == 1)]] = 1 - GP_cold
     return G, GP
 
 
 # x = np.random.rand(1000, 1000)
 # x[10:20,10:20] += 100
 # x[80:120,60:130] += 200
-# x[10:20,150:180] += 100 
+# x[10:20,150:180] += 100
 
 
 # _, GPi = G_permutation(x, connectivity=CONNECTIVITY_QUEEN, n_iter = 999, seed=42)
@@ -249,32 +444,59 @@ def G(x, n_iter=0, radius = None, connectivity=CONNECTIVITY_QUEEN, seed=42, aggr
 # x[40:,40:] += 100000
 # Gi, GPi = G_variable(x, n_iter=999, connectivity=CONNECTIVITY_QUEEN, seed=42, min_range=3, max_range=None, n_ranges=10)
 
-@numba.njit(parallel=True, cache=True)
+
+@numba.njit(parallel=True, cache=False)
 def H_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True, return_var=False):
-    w1=4*connectivity + 1
+    w1 = 4 * connectivity + 1
 
     # neighborhood means
     xp = man_pad(x)
     if connectivity == CONNECTIVITY_QUEEN:
-        xnm = (x+xp[:-2,1:-1]+xp[1:-1,:-2]+xp[2:,1:-1]+xp[1:-1,2:]+xp[:-2,:-2]+xp[:-2,2:]+xp[2:,:-2]+xp[2:,2:])/w1
+        xnm = (
+            x
+            + xp[:-2, 1:-1]
+            + xp[1:-1, :-2]
+            + xp[2:, 1:-1]
+            + xp[1:-1, 2:]
+            + xp[:-2, :-2]
+            + xp[:-2, 2:]
+            + xp[2:, :-2]
+            + xp[2:, 2:]
+        ) / w1
     else:
-        xnm = (x+xp[:-2,1:-1]+xp[1:-1,:-2]+xp[2:,1:-1]+xp[1:-1,2:])/w1
+        xnm = (x + xp[:-2, 1:-1] + xp[1:-1, :-2] + xp[2:, 1:-1] + xp[1:-1, 2:]) / w1
 
     # observed Hi
-    xresid = man_pad((x - xnm)**2)
-    denom = np.mean(xresid[1:-1,1:-1]) * w1
+    xresid = man_pad((x - xnm) ** 2)
+    denom = np.mean(xresid[1:-1, 1:-1]) * w1
     if connectivity == CONNECTIVITY_QUEEN:
-        Hi = (xresid[1:-1,1:-1]+xresid[:-2,1:-1]+xresid[1:-1,:-2]+xresid[2:,1:-1]+xresid[1:-1,2:]+xresid[:-2,:-2]+xresid[:-2,2:]+xresid[2:,:-2]+xresid[2:,2:]) / denom
+        Hi = (
+            xresid[1:-1, 1:-1]
+            + xresid[:-2, 1:-1]
+            + xresid[1:-1, :-2]
+            + xresid[2:, 1:-1]
+            + xresid[1:-1, 2:]
+            + xresid[:-2, :-2]
+            + xresid[:-2, 2:]
+            + xresid[2:, :-2]
+            + xresid[2:, 2:]
+        ) / denom
     else:
-        Hi = (xresid[1:-1,1:-1]+xresid[:-2,1:-1]+xresid[1:-1,:-2]+xresid[2:,1:-1]+xresid[1:-1,2:]) / denom
+        Hi = (
+            xresid[1:-1, 1:-1]
+            + xresid[:-2, 1:-1]
+            + xresid[1:-1, :-2]
+            + xresid[2:, 1:-1]
+            + xresid[1:-1, 2:]
+        ) / denom
 
     if normalize:
-        h1 = denom/w1
-        h2 = np.mean(xresid[1:-1,1:-1]**2)
-        n = np.float64((x.shape[0]*x.shape[1]))
-        w2=w1
-        VarHi = 1/(n - 1) * (1/denom)**2 * (h2 - h1**2) * ((n * w2) - (w1**2))
-        HZi = (2*Hi)/VarHi
+        h1 = denom / w1
+        h2 = np.mean(xresid[1:-1, 1:-1] ** 2)
+        n = np.float64((x.shape[0] * x.shape[1]))
+        w2 = w1
+        VarHi = 1 / (n - 1) * (1 / denom) ** 2 * (h2 - h1**2) * ((n * w2) - (w1**2))
+        HZi = (2 * Hi) / VarHi
         if return_var:
             return HZi, VarHi
         else:
@@ -282,132 +504,210 @@ def H_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True, return_var=F
     else:
         return Hi, None
 
+
 # H(x, connectivity=CONNECTIVITY_QUEEN, normalize=False, return_var=False)
 
-@numba.njit(parallel=True, cache=True)
-def H_permutation(x, connectivity=CONNECTIVITY_QUEEN, n_iter = 99, seed=42):
+
+@numba.njit(parallel=True, cache=False)
+def H_permutation(x, connectivity=CONNECTIVITY_QUEEN, n_iter=99, seed=42):
     np.random.seed(seed)
-    w1=4*connectivity + 1
+    w1 = 4 * connectivity + 1
 
     # neighborhood means
     xp = man_pad(x)
     if connectivity == CONNECTIVITY_QUEEN:
-        xnm = (x+xp[:-2,1:-1]+xp[1:-1,:-2]+xp[2:,1:-1]+xp[1:-1,2:]+xp[:-2,:-2]+xp[:-2,2:]+xp[2:,:-2]+xp[2:,2:])/w1
+        xnm = (
+            x
+            + xp[:-2, 1:-1]
+            + xp[1:-1, :-2]
+            + xp[2:, 1:-1]
+            + xp[1:-1, 2:]
+            + xp[:-2, :-2]
+            + xp[:-2, 2:]
+            + xp[2:, :-2]
+            + xp[2:, 2:]
+        ) / w1
     else:
-        xnm = (x+xp[:-2,1:-1]+xp[1:-1,:-2]+xp[2:,1:-1]+xp[1:-1,2:])/w1
+        xnm = (x + xp[:-2, 1:-1] + xp[1:-1, :-2] + xp[2:, 1:-1] + xp[1:-1, 2:]) / w1
 
     # observed Hi
-    xresid = man_pad((x - xnm)**2)
-    denom = np.mean(xresid[1:-1,1:-1]) * w1
+    xresid = man_pad((x - xnm) ** 2)
+    denom = np.mean(xresid[1:-1, 1:-1]) * w1
     if connectivity == CONNECTIVITY_QUEEN:
-        Hi = (xresid[1:-1,1:-1]+xresid[:-2,1:-1]+xresid[1:-1,:-2]+xresid[2:,1:-1]+xresid[1:-1,2:]+xresid[:-2,:-2]+xresid[:-2,2:]+xresid[2:,:-2]+xresid[2:,2:]) / denom
+        Hi = (
+            xresid[1:-1, 1:-1]
+            + xresid[:-2, 1:-1]
+            + xresid[1:-1, :-2]
+            + xresid[2:, 1:-1]
+            + xresid[1:-1, 2:]
+            + xresid[:-2, :-2]
+            + xresid[:-2, 2:]
+            + xresid[2:, :-2]
+            + xresid[2:, 2:]
+        ) / denom
     else:
-        Hi = (xresid[1:-1,1:-1]+xresid[:-2,1:-1]+xresid[1:-1,:-2]+xresid[2:,1:-1]+xresid[1:-1,2:]) / denom
+        Hi = (
+            xresid[1:-1, 1:-1]
+            + xresid[:-2, 1:-1]
+            + xresid[1:-1, :-2]
+            + xresid[2:, 1:-1]
+            + xresid[1:-1, 2:]
+        ) / denom
 
-    perm_H_counts = np.zeros((2,Hi.shape[0],Hi.shape[1]), dtype=np.uint16)
+    perm_H_counts = np.zeros((2, Hi.shape[0], Hi.shape[1]), dtype=np.uint16)
     for rep in numba.prange(n_iter):
         # random permutation of x
         xrp_test = man_pad(np.random.permutation(x.flatten()).reshape(x.shape))
         if connectivity == CONNECTIVITY_QUEEN:
-            xrnm_init = (xrp_test[1:-1,1:-1]+xrp_test[:-2,1:-1]+xrp_test[1:-1,:-2]+xrp_test[2:,1:-1]+xrp_test[1:-1,2:]+xrp_test[:-2,:-2]+xrp_test[:-2,2:]+xrp_test[2:,:-2]+xrp_test[2:,2:])/w1
+            xrnm_init = (
+                xrp_test[1:-1, 1:-1]
+                + xrp_test[:-2, 1:-1]
+                + xrp_test[1:-1, :-2]
+                + xrp_test[2:, 1:-1]
+                + xrp_test[1:-1, 2:]
+                + xrp_test[:-2, :-2]
+                + xrp_test[:-2, 2:]
+                + xrp_test[2:, :-2]
+                + xrp_test[2:, 2:]
+            ) / w1
         else:
-            xrnm_init = (xrp_test[1:-1,1:-1]+xrp_test[:-2,1:-1]+xrp_test[1:-1,:-2]+xrp_test[2:,1:-1]+xrp_test[1:-1,2:])/w1
-        xresidr_init = (xrp_test[1:-1,1:-1] - xrnm_init)**2
+            xrnm_init = (
+                xrp_test[1:-1, 1:-1]
+                + xrp_test[:-2, 1:-1]
+                + xrp_test[1:-1, :-2]
+                + xrp_test[2:, 1:-1]
+                + xrp_test[1:-1, 2:]
+            ) / w1
+        xresidr_init = (xrp_test[1:-1, 1:-1] - xrnm_init) ** 2
         n = x.shape[0] * x.shape[1]
         denomr_sum_init = np.sum(xresidr_init) * w1
         for xi, yi in np.ndindex(x.shape):
-            init_rval = xrp_test[xi+1,yi+1]
-            xrp_test[xi+1,yi+1]=x[xi,yi]
-            xstart = max(0,xi-1)
-            xstart_offset = xstart-(xi-1)
-            xend = min(xi+2,x.shape[0])
-            ystart = max(0,yi-1)
-            ystart_offset = ystart-(yi-1)
-            yend = min(yi+2,x.shape[1])
+            init_rval = xrp_test[xi + 1, yi + 1]
+            xrp_test[xi + 1, yi + 1] = x[xi, yi]
+            xstart = max(0, xi - 1)
+            xstart_offset = xstart - (xi - 1)
+            xend = min(xi + 2, x.shape[0])
+            ystart = max(0, yi - 1)
+            ystart_offset = ystart - (yi - 1)
+            yend = min(yi + 2, x.shape[1])
 
             # partial sum for normalization
-            xresidr_init_initsubarray_sum = np.sum(xresidr_init[xstart:xend, ystart:yend]) * w1
+            xresidr_init_initsubarray_sum = (
+                np.sum(xresidr_init[xstart:xend, ystart:yend]) * w1
+            )
             # new neighborhood means
-            xrnm_init_replacement_array = np.zeros((xend-xstart, yend-ystart))
-            for ii,i in enumerate(range(xstart, xend)):
-                for jj,j in enumerate(range(ystart, yend)):
+            xrnm_init_replacement_array = np.zeros((xend - xstart, yend - ystart))
+            for ii, i in enumerate(range(xstart, xend)):
+                for jj, j in enumerate(range(ystart, yend)):
                     # +1 everywhere because of the padding
-                    ip = i+1
-                    jp = j+1
+                    ip = i + 1
+                    jp = j + 1
                     if connectivity == CONNECTIVITY_QUEEN:
-                        xrnm_init_replacement_array[ii,jj] = (
-                            xrp_test[ip,jp]+
-                            xrp_test[ip-1,jp]+
-                            xrp_test[ip,jp-1]+
-                            xrp_test[ip+1,jp]+
-                            xrp_test[ip,jp+1]+
-                            xrp_test[ip-1,jp-1]+
-                            xrp_test[ip+1,jp-1]+
-                            xrp_test[ip-1,jp+1]+
-                            xrp_test[ip+1,jp+1]
-                            )/w1
+                        xrnm_init_replacement_array[ii, jj] = (
+                            xrp_test[ip, jp]
+                            + xrp_test[ip - 1, jp]
+                            + xrp_test[ip, jp - 1]
+                            + xrp_test[ip + 1, jp]
+                            + xrp_test[ip, jp + 1]
+                            + xrp_test[ip - 1, jp - 1]
+                            + xrp_test[ip + 1, jp - 1]
+                            + xrp_test[ip - 1, jp + 1]
+                            + xrp_test[ip + 1, jp + 1]
+                        ) / w1
                     else:
-                        xrnm_init_replacement_array[ii,jj] = (
-                            xrp_test[ip,jp]+
-                            xrp_test[ip-1,jp]+
-                            xrp_test[ip,jp-1]+
-                            xrp_test[ip+1,jp]+
-                            xrp_test[ip,jp+1]
-                            )/w1
+                        xrnm_init_replacement_array[ii, jj] = (
+                            xrp_test[ip, jp]
+                            + xrp_test[ip - 1, jp]
+                            + xrp_test[ip, jp - 1]
+                            + xrp_test[ip + 1, jp]
+                            + xrp_test[ip, jp + 1]
+                        ) / w1
             # new residuals
-            xresidr_init_replacement_array = np.zeros((xend-xstart, yend-ystart))
-            for ii,i in enumerate(range(xstart, xend)):
-                for jj,j in enumerate(range(ystart, yend)):
+            xresidr_init_replacement_array = np.zeros((xend - xstart, yend - ystart))
+            for ii, i in enumerate(range(xstart, xend)):
+                for jj, j in enumerate(range(ystart, yend)):
                     # +1 everywhere because of the padding
-                    ip = i+1
-                    jp = j+1
-                    xresidr_init_replacement_array[ii,jj] = (xrp_test[ip,jp] - xrnm_init_replacement_array[ii,jj])**2
+                    ip = i + 1
+                    jp = j + 1
+                    xresidr_init_replacement_array[ii, jj] = (
+                        xrp_test[ip, jp] - xrnm_init_replacement_array[ii, jj]
+                    ) ** 2
 
             # update the denominator, remove initial partial sum and add the new partial sum, and calculate the mean
-            denomr = (denomr_sum_init - xresidr_init_initsubarray_sum + np.sum(xresidr_init_replacement_array)*w1)/n
+            denomr = (
+                denomr_sum_init
+                - xresidr_init_initsubarray_sum
+                + np.sum(xresidr_init_replacement_array) * w1
+            ) / n
 
             # pad for boundaries
             xresidr_init_replacement_array = man_pad(xresidr_init_replacement_array)
 
             # calculate Hi for the replacement, xstart_offset and ystart_offset are for the boundaries
             if connectivity == CONNECTIVITY_QUEEN:
-                Hir =  (
-                    xresidr_init_replacement_array[2-xstart_offset, 2-ystart_offset] +
-                    xresidr_init_replacement_array[2-xstart_offset-1, 2-ystart_offset] +
-                    xresidr_init_replacement_array[2-xstart_offset, 2-ystart_offset-1] +
-                    xresidr_init_replacement_array[2-xstart_offset+1, 2-ystart_offset] +
-                    xresidr_init_replacement_array[2-xstart_offset, 2-ystart_offset+1] +
-                    xresidr_init_replacement_array[2-xstart_offset-1, 2-ystart_offset-1] +
-                    xresidr_init_replacement_array[2-xstart_offset+1, 2-ystart_offset-1] +
-                    xresidr_init_replacement_array[2-xstart_offset-1, 2-ystart_offset+1] +
-                    xresidr_init_replacement_array[2-xstart_offset+1, 2-ystart_offset+1]
-                    )/denomr
+                Hir = (
+                    xresidr_init_replacement_array[2 - xstart_offset, 2 - ystart_offset]
+                    + xresidr_init_replacement_array[
+                        2 - xstart_offset - 1, 2 - ystart_offset
+                    ]
+                    + xresidr_init_replacement_array[
+                        2 - xstart_offset, 2 - ystart_offset - 1
+                    ]
+                    + xresidr_init_replacement_array[
+                        2 - xstart_offset + 1, 2 - ystart_offset
+                    ]
+                    + xresidr_init_replacement_array[
+                        2 - xstart_offset, 2 - ystart_offset + 1
+                    ]
+                    + xresidr_init_replacement_array[
+                        2 - xstart_offset - 1, 2 - ystart_offset - 1
+                    ]
+                    + xresidr_init_replacement_array[
+                        2 - xstart_offset + 1, 2 - ystart_offset - 1
+                    ]
+                    + xresidr_init_replacement_array[
+                        2 - xstart_offset - 1, 2 - ystart_offset + 1
+                    ]
+                    + xresidr_init_replacement_array[
+                        2 - xstart_offset + 1, 2 - ystart_offset + 1
+                    ]
+                ) / denomr
             else:
-                Hir =  (
-                    xresidr_init_replacement_array[2-xstart_offset, 2-ystart_offset] +
-                    xresidr_init_replacement_array[2-xstart_offset-1, 2-ystart_offset] +
-                    xresidr_init_replacement_array[2-xstart_offset, 2-ystart_offset-1] +
-                    xresidr_init_replacement_array[2-xstart_offset+1, 2-ystart_offset] +
-                    xresidr_init_replacement_array[2-xstart_offset, 2-ystart_offset+1]
-                    )/denomr
+                Hir = (
+                    xresidr_init_replacement_array[2 - xstart_offset, 2 - ystart_offset]
+                    + xresidr_init_replacement_array[
+                        2 - xstart_offset - 1, 2 - ystart_offset
+                    ]
+                    + xresidr_init_replacement_array[
+                        2 - xstart_offset, 2 - ystart_offset - 1
+                    ]
+                    + xresidr_init_replacement_array[
+                        2 - xstart_offset + 1, 2 - ystart_offset
+                    ]
+                    + xresidr_init_replacement_array[
+                        2 - xstart_offset, 2 - ystart_offset + 1
+                    ]
+                ) / denomr
 
             # compare with observed Hi
-            perm_H_counts[np.int64(Hir>Hi[xi,yi]),xi,yi] += 1
+            perm_H_counts[np.int64(Hir > Hi[xi, yi]), xi, yi] += 1
 
             # restore the original permuted value
-            xrp_test[xi+1,yi+1]=init_rval
+            xrp_test[xi + 1, yi + 1] = init_rval
 
-    HPi = (1+perm_H_counts[1])/(n_iter+1)
+    HPi = (1 + perm_H_counts[1]) / (n_iter + 1)
     return Hi, HPi
+
 
 def H(x, n_iter=99, connectivity=CONNECTIVITY_QUEEN, seed=42):
     H, VarH = H_classical(x, connectivity=connectivity, normalize=True, return_var=True)
     if n_iter > 0:
         HP = H_permutation(x, connectivity=connectivity, n_iter=n_iter, seed=seed)[1]
     else:
-        dof = 2/VarH
+        dof = 2 / VarH
         HP = 1 - scipy.stats.chi2.cdf(H, dof)
     return H, HP
+
 
 # x = np.random.normal(size=(100, 100))
 # # x = np.random.random(size=(100, 100))
@@ -441,7 +741,6 @@ def H(x, n_iter=99, connectivity=CONNECTIVITY_QUEEN, seed=42):
 # # ax[2].set_xlim(0, 1)
 # # ax[2].set_ylim(0, 1)
 # plt.savefig('H_permutation.png')
-
 
 
 # import timeit
@@ -492,7 +791,7 @@ def H(x, n_iter=99, connectivity=CONNECTIVITY_QUEEN, seed=42):
 # ax[0].set_title('Time taken to compute G and H')
 # ax[0].legend()
 # ax[0].set_xscale('log')
-# ax[0].set_yscale('log')   
+# ax[0].set_yscale('log')
 # ax[1].plot(ns**2, np.array(times2)/np.array(times1), label='numba parallel vs. numba serial')
 # ax[1].plot(ns**2, np.array(times3)/np.array(times1), label='numba variable vs. numba serial')
 # ax[1].plot(ns**2, np.array(times3)/np.array(times2), label='numba variable vs. numba parallel',c="black")
