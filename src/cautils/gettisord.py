@@ -352,6 +352,16 @@ def G(
     assert aggregation in ["min", "mean"], "Aggregation must be either 'min' or 'mean'."
     which_test = split_GPtype(GPtype)
     all_tests = np.array([GPVAL_TYPE_BOTH, GPVAL_TYPE_COLD, GPVAL_TYPE_HOT])
+
+    # check for possible overflow
+    maxval = np.max(x).astype(np.float64)
+    required_capacity = max((4 * connectivity + 1) * maxval, maxval**2)
+    dtype_limits = [(np.uint16, np.iinfo(np.uint16).max), (np.uint32, np.iinfo(np.uint32).max),(np.uint64, np.iinfo(np.uint64).max)]
+    for dtype, limit in dtype_limits:
+        if required_capacity <= limit:
+            x = x.astype(dtype) if x.dtype != dtype else x
+            break
+
     if n_iter > 0:
         if radius is not None:
             if isinstance(radius, (list, tuple)):
