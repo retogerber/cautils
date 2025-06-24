@@ -238,7 +238,7 @@ def G_permutation_fast(
             for yi in numba.prange(x.shape[1]):
                 # new neighborhood mean
                 if connectivity == CONNECTIVITY_QUEEN:
-                    xrns_init_replacement = (
+                    neighbor_sums = (
                         xrp_test[xi + 1 - 1, yi + 1]
                         + xrp_test[xi + 1, yi + 1 - 1]
                         + xrp_test[xi + 1 + 1, yi + 1]
@@ -249,18 +249,13 @@ def G_permutation_fast(
                         + xrp_test[xi + 1 + 1, yi + 1 + 1]
                     )
                 else:
-                    xrns_init_replacement = (
+                    neighbor_sums = (
                         xrp_test[xi + 1 - 1, yi + 1]
                         + xrp_test[xi + 1, yi + 1 - 1]
                         + xrp_test[xi + 1 + 1, yi + 1]
                         + xrp_test[xi + 1, yi + 1 + 1]
                     )
-                if Gstar:
-                    tmp_sum = x_sum - xrp_test[xi + 1, yi + 1] + x[xi, yi]
-                    Gir = (xrns_init_replacement+x[xi,yi]) / tmp_sum
-                else:
-                    tmp_sum = x_sum - x[xi, yi]
-                    Gir = xrns_init_replacement / tmp_sum
+                Gir = (x[xi, yi]*Gstar + neighbor_sums) / (x_sum-x[xi,yi]*Gstar)
 
                 # compare with observed Gi
                 perm_G_counts[np.int64(np.abs(Gir) > np.abs(Gi[xi, yi])), xi, yi] += 1
