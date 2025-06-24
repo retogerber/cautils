@@ -11,7 +11,7 @@ GPVAL_TYPE_COLD = 2
 GPVAL_TYPE_BOTH = 4
 
 
-@numba.njit(parallel=False, cache=True)
+@numba.njit(parallel=False, cache=False)
 def man_pad(x):
     xm = np.empty((x.shape[0] + 2, x.shape[1] + 2), dtype=x.dtype)
     xm[1:-1, 1:-1] = x
@@ -26,16 +26,15 @@ def man_pad(x):
     return xm
 
 
-@numba.njit(parallel=True, cache=True)
-def G_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True):
+@numba.njit(parallel=True, cache=False)
+def G_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True, Gstar=True):
     x_sum = np.float64(np.sum(x))
 
     # neighborhood sums
     xp = man_pad(x)
     if connectivity == CONNECTIVITY_QUEEN:
         xns = (
-            xp[1:-1, 1:-1]
-            + xp[:-2, 1:-1]
+            xp[:-2, 1:-1]
             + xp[1:-1, :-2]
             + xp[2:, 1:-1]
             + xp[1:-1, 2:]
@@ -46,25 +45,36 @@ def G_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True):
         )
     else:
         xns = (
-            xp[1:-1, 1:-1] + xp[:-2, 1:-1] + xp[1:-1, :-2] + xp[2:, 1:-1] + xp[1:-1, 2:]
+            xp[:-2, 1:-1] + xp[1:-1, :-2] + xp[2:, 1:-1] + xp[1:-1, 2:]
         )
-
     if normalize:
-        w1 = 4 * connectivity + 1
-        n = np.float64(x.size)
-        x_mean = x_sum / n
-        x2_sum = np.sum(x**2)
-        s2 = x2_sum / n - x_mean**2
-
-        return (xns - x_mean * w1) / np.sqrt(s2 * ((n * w1 - w1**2) / (n - 1)))
+        if Gstar:
+            xns = xns+x
+            w1 = 4 * connectivity + 1
+            n = np.float64(x.size)
+            x_mean = x_sum / n
+            x2_sum = np.sum(x**2)
+            s2 = x2_sum / n - x_mean**2
+            Gout = (xns - x_mean * w1) / np.sqrt(s2 * ((n * w1 - w1**2) / (n - 1)))
+        else:
+            w1 = 4 * connectivity
+            n = np.float64(x.size)-1
+            x_mean = (x_sum-x) / n
+            x2 = x**2
+            x2_sum = np.sum(x2)- x2
+            s2 = x2_sum / n - x_mean**2
+            Gout = (xns - x_mean * w1) / np.sqrt(s2 * ((n * w1 - w1**2) / (n - 1)))
     else:
-        return xns / x_sum
+        if Gstar:
+            Gout = (xns+x) / x_sum
+        else:
+            Gout = xns / (x_sum-x)
+    return Gout
 
 
-# G(x, connectivity=CONNECTIVITY_QUEEN, normalize=True)
 
 
-@numba.njit(cache=True)
+@numba.njit(cache=False)
 def split_GPtype(GPtype):
     # decompose GPtype into its components
     which_test = np.zeros(3, dtype=np.uint8)
@@ -74,10 +84,9 @@ def split_GPtype(GPtype):
         tmpGPtype -= (tmpGPtype // t) * t
     return which_test
 
-
-@numba.njit(parallel=True, cache=True)
+@numba.njit(parallel=True, cache=False)
 def G_permutation(
-    x, connectivity=CONNECTIVITY_QUEEN, n_iter=99, seed=42, GPtype=GPVAL_TYPE_BOTH
+    x, connectivity=CONNECTIVITY_QUEEN, n_iter=99, seed=42, GPtype=GPVAL_TYPE_BOTH, Gstar=True
 ):
     """
     Calculate the G statistic and its p-value for a given input array x using permutation testing.
@@ -120,7 +129,101 @@ def G_permutation(
         )
     else:
         xns = xp[:-2, 1:-1] + xp[1:-1, :-2] + xp[2:, 1:-1] + xp[1:-1, 2:]
-    Gi = xns / x_sum
+    if Gstar:
+        Gi = (xns+x) / x_sum
+    else:
+        Gi = xns / (x_sum-x)
+
+    # decompose GPtype into its components
+    which_test = split_GPtype(GPtype)
+
+    # number of neighbors to sample
+    n_samples = 8 if connectivity == CONNECTIVITY_QUEEN else 4
+
+    # calculate the probability of duplicate neighbors (birthday problem approximation)
+    p_duplicate = 1 - np.exp(-(4*connectivity)**2/(2*x.size))
+    p_center_pixel = 1 / x.size
+    expected_n_invalid = n_iter*p_duplicate + n_iter*p_center_pixel
+    do_test_invalid = expected_n_invalid > 0.5
+    n_additional = np.ceil(n_iter*p_duplicate + n_iter*p_center_pixel)+5
+    xrindsarr = np.random.randint(0, x.shape[0], (x.shape[0], x.shape[1], int(n_iter * n_samples + n_additional)))
+    yrindsarr = np.random.randint(0, x.shape[1], (x.shape[0], x.shape[1], int(n_iter * n_samples + n_additional)))
+
+    perm_G_counts = np.zeros((3, Gi.shape[0], Gi.shape[1]), dtype=np.uint16)
+    for xi in numba.prange(x.shape[0]):
+        for yi in numba.prange(x.shape[1]):
+           # permute over neighbors
+            neighbor_sums = np.zeros((n_iter), dtype=np.float64)
+            currind = 0
+            for it in numba.prange(n_iter):
+                for nei in range(n_samples):
+                    if do_test_invalid:
+                        while xrindsarr[xi, yi, currind] == xi and yrindsarr[xi, yi, currind] == yi:
+                            # if the center pixel is selected as a neighbor, skip it
+                            currind += 1
+                    # sum over neighbors
+                    neighbor_sums[it] += x[xrindsarr[xi,yi,currind], yrindsarr[xi,yi,currind]]
+                    currind += 1
+
+            permGi = (x[xi, yi]*Gstar + neighbor_sums) / (x_sum-x[xi,yi]*Gstar)
+            # compare with observed Gi
+            perm_G_counts[0, xi, yi] = np.sum(np.abs(permGi) > np.abs(Gi[xi, yi]))
+            perm_G_counts[1, xi, yi] = np.sum(permGi < Gi[xi, yi])
+            perm_G_counts[2, xi, yi] = np.sum(permGi > Gi[xi, yi])
+    # only return the requested p-values
+    GPi = (1 + perm_G_counts[np.where(which_test)[0], :, :]) / (n_iter + 1)
+    return Gi, GPi
+
+@numba.njit(parallel=True, cache=False)
+def G_permutation_fast(
+    x, connectivity=CONNECTIVITY_QUEEN, n_iter=99, seed=42, GPtype=GPVAL_TYPE_BOTH, Gstar=True
+):
+    """
+    Calculate the G statistic and its p-value for a given input array x using permutation testing.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        Input array for which the G statistic and p-value are calculated.
+    connectivity : int, optional
+        Connectivity type for neighborhood calculation. Default is CONNECTIVITY_QUEEN.
+    n_iter : int, optional
+        Number of iterations for permutation testing. Default is 99.
+    seed : int, optional
+        Random seed for reproducibility. Default is 42.
+    GPtype : int, optional
+        Type of G statistic to calculate. Can be either GPVAL_TYPE_BOTH, GPVAL_TYPE_COLD, or GPVAL_TYPE_HOT, or the sum of any of those three. For example GPVAL_TYPE_HOT+GPVAL_TYPE_COLD will return both hot and cold p-values.
+        Default is GPVAL_TYPE_BOTH.
+    Returns
+    -------
+    Gi : np.ndarray
+        G statistic for the input array x.
+    GPi : np.ndarray
+        P-value for the G statistic.
+    """
+    np.random.seed(seed)
+    x_sum = np.float64(np.sum(x))
+
+    # neighborhood sums
+    xp = man_pad(x)
+    if connectivity == CONNECTIVITY_QUEEN:
+        xns = (
+            xp[:-2, 1:-1]
+            + xp[1:-1, :-2]
+            + xp[2:, 1:-1]
+            + xp[1:-1, 2:]
+            + xp[:-2, :-2]
+            + xp[:-2, 2:]
+            + xp[2:, :-2]
+            + xp[2:, 2:]
+        )
+    else:
+        xns = xp[:-2, 1:-1] + xp[1:-1, :-2] + xp[2:, 1:-1] + xp[1:-1, 2:]
+    if Gstar:
+        Gi = (xns+x) / x_sum
+    else:
+        # remove the center pixel from the total sum
+        Gi = xns / (x_sum-x)
 
     # decompose GPtype into its components
     which_test = split_GPtype(GPtype)
@@ -128,7 +231,7 @@ def G_permutation(
     perm_G_counts = np.zeros((6, Gi.shape[0], Gi.shape[1]), dtype=np.uint16)
     for rep in numba.prange(n_iter):
         # random permutation of x
-        xrp_test = man_pad(np.random.permutation(x.flatten()).reshape(x.shape))
+        xrp_test = man_pad(np.random.permutation(x.ravel()).reshape(x.shape))
         # since xrp_test is a permutation of x, we can use the same neighborhood means
         # x_test_sum = np.float64(np.sum(xrp_test[1:-1,1:-1]))
         for xi in numba.prange(x.shape[0]):
@@ -136,8 +239,7 @@ def G_permutation(
                 # new neighborhood mean
                 if connectivity == CONNECTIVITY_QUEEN:
                     xrns_init_replacement = (
-                        x[xi, yi]
-                        + xrp_test[xi + 1 - 1, yi + 1]
+                        xrp_test[xi + 1 - 1, yi + 1]
                         + xrp_test[xi + 1, yi + 1 - 1]
                         + xrp_test[xi + 1 + 1, yi + 1]
                         + xrp_test[xi + 1, yi + 1 + 1]
@@ -148,14 +250,17 @@ def G_permutation(
                     )
                 else:
                     xrns_init_replacement = (
-                        x[xi, yi]
-                        + xrp_test[xi + 1 - 1, yi + 1]
+                        xrp_test[xi + 1 - 1, yi + 1]
                         + xrp_test[xi + 1, yi + 1 - 1]
                         + xrp_test[xi + 1 + 1, yi + 1]
                         + xrp_test[xi + 1, yi + 1 + 1]
                     )
-                tmp_sum = x_sum - xrp_test[xi + 1, yi + 1] + x[xi, yi]
-                Gir = xrns_init_replacement / tmp_sum
+                if Gstar:
+                    tmp_sum = x_sum - xrp_test[xi + 1, yi + 1] + x[xi, yi]
+                    Gir = (xrns_init_replacement+x[xi,yi]) / tmp_sum
+                else:
+                    tmp_sum = x_sum - x[xi, yi]
+                    Gir = xrns_init_replacement / tmp_sum
 
                 # compare with observed Gi
                 perm_G_counts[np.int64(np.abs(Gir) > np.abs(Gi[xi, yi])), xi, yi] += 1
@@ -323,6 +428,8 @@ def G(
     seed=42,
     aggregation="min",
     GPtype=GPVAL_TYPE_BOTH,
+    fast=True,
+    Gstar=True
 ):
     """
     Calculate the G statistic and its p-value (default: hot spots) for a given input array x.
@@ -392,11 +499,18 @@ def G(
                     GPtype=GPtype,
                 )
         else:
-            G, GP = G_permutation(
-                x, connectivity=connectivity, n_iter=n_iter, seed=seed, GPtype=GPtype
-            )
+            if fast:
+                G, GP = G_permutation_fast(
+                    x, connectivity=connectivity, n_iter=n_iter, seed=seed, GPtype=GPtype,
+                    Gstar=Gstar
+                )
+            else:
+                G, GP = G_permutation(
+                    x, connectivity=connectivity, n_iter=n_iter, seed=seed, GPtype=GPtype,
+                    Gstar=Gstar
+                )
     else:
-        G = G_classical(x, connectivity=connectivity, normalize=True)
+        G = G_classical(x, connectivity=connectivity, normalize=True, Gstar=Gstar)
         GPtmp = (1.0 - scipy.stats.norm.cdf(np.abs(G))) * 2  # scale to [0,1]
         GP = np.zeros((np.sum(which_test), x.shape[0], x.shape[1]), dtype=np.float64)
         if GPVAL_TYPE_BOTH in all_tests[np.where(which_test == 1)]:
