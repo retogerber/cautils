@@ -341,7 +341,7 @@ def get_features(
         )
     if calc_coreedgediff:
         df = df.with_columns(
-            {
+            **{
                 **{
                     f"{ch}_CORE_EDGE_diff": coreedgediff[:, i]
                     for i, ch in enumerate(channelnames)
