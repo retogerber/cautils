@@ -772,14 +772,15 @@ def H_classical_new(
         x, 
         kernel=Kernel(1.5, include_center=True, weight=KERNEL_WEIGHT_EXP, normalize=True),
         normalize=True,
-        return_var=False
+        return_var=False,
+        a=2.0
     ):
 
     # neighborhood sums
     xp = man_pad(x, kernel.diameter // 2)
     xns = neighborhood_sum(x, kernel, xp=xp)
     w1 = kernel.w
-    xresid = (x - xns/w1) ** 2
+    xresid = (x - xns/w1) ** a
     xresidp = man_pad(xresid, kernel.diameter // 2)
     denom = np.mean(xresid) * w1
     Hi = neighborhood_sum(xresid, kernel, xp=xresidp)/denom
