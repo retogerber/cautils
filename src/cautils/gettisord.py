@@ -780,7 +780,7 @@ def H_classical_new(
     xp = man_pad(x, kernel.diameter // 2)
     xns = neighborhood_sum(x, kernel, xp=xp)
     w1 = kernel.w
-    xresid = (x - xns/w1) ** a
+    xresid = np.abs((x - xns/w1)) ** a
     xresidp = man_pad(xresid, kernel.diameter // 2)
     denom = np.mean(xresid) * w1
     Hi = neighborhood_sum(xresid, kernel, xp=xresidp)/denom
