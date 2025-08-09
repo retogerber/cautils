@@ -15,7 +15,7 @@ GPVAL_TYPE_BOTH = 4
 KERNEL_WEIGHT_NONE = 0
 KERNEL_WEIGHT_EXP = 1
 
-@numba.njit(parallel=False, cache=False)
+@numba.njit(parallel=False, cache=True)
 def get_circular_kernel(distance, include_center=True, weight=KERNEL_WEIGHT_NONE):
     diameter = int(np.floor(distance) * 2 + 1)
     mid = (diameter - 1) // 2
@@ -82,7 +82,7 @@ class Kernel:
 # ker.kernel
 
 
-@numba.njit(parallel=False, cache=False)
+@numba.njit(parallel=False, cache=True)
 def man_pad(x, distance=1):
     xm = np.zeros((x.shape[0] + 2*distance, x.shape[1] + 2*distance), dtype=x.dtype)
     xm[distance:-distance, distance:-distance] = x
@@ -99,7 +99,7 @@ def man_pad(x, distance=1):
     return xm
 # man_pad(np.random.rand(5, 5), distance=2)
 
-@numba.njit(parallel=True, cache=False)
+@numba.njit(parallel=True, cache=True)
 def neighborhood_sum(x, kernel: Kernel, xp=None):
     if xp is None:
         xp = np.copy(x)
@@ -118,7 +118,7 @@ def neighborhood_sum(x, kernel: Kernel, xp=None):
 # neighborhood_sum(x, ker, xp=xp)
 
 
-@numba.njit(parallel=True, cache=False)
+@numba.njit(parallel=True, cache=True)
 def G_classical(
         x, 
         connectivity=CONNECTIVITY_QUEEN, 
@@ -170,7 +170,7 @@ def G_classical(
 
 
 
-@numba.njit(parallel=True, cache=False)
+@numba.njit(parallel=True, cache=True)
 def G_classical_new(
         x, 
         kernel=Kernel(1.5, include_center=True, weight=KERNEL_WEIGHT_EXP, normalize=True),
@@ -767,6 +767,48 @@ def H_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True, return_var=F
     else:
         return Hi, None
 
+@numba.njit(parallel=True, cache=True)
+def H_classical_new(
+        x, 
+        kernel=Kernel(1.5, include_center=True, weight=KERNEL_WEIGHT_EXP, normalize=True),
+        normalize=True,
+        return_var=False
+    ):
+
+    # neighborhood sums
+    xp = man_pad(x, kernel.diameter // 2)
+    xns = neighborhood_sum(x, kernel, xp=xp)
+    w1 = kernel.w
+    xresid = (x - xns/w1) ** 2
+    xresidp = man_pad(xresid, kernel.diameter // 2)
+    denom = np.mean(xresid) * w1
+    Hi = neighborhood_sum(xresid, kernel, xp=xresidp)/denom
+
+    if normalize:
+        h1 = denom / w1
+        h2 = np.mean(xresid ** 2)
+        n = np.float64((x.shape[0] * x.shape[1]))
+        w2 = w1
+        VarHi = 1 / (n - 1) * (1 / denom) ** 2 * (h2 - h1**2) * ((n * w2) - (w1**2))
+        HZi = (2 * Hi) / VarHi
+        if return_var:
+            return HZi, VarHi
+        else:
+            return HZi, None
+    else:
+        return Hi, None
+
+
+# x = np.random.rand(20, 20)
+# # x = np.zeros((10, 10), dtype=np.float64)
+# x[1:6, 1:6] += 10
+# Kernel(1.5, include_center=True, weight=KERNEL_WEIGHT_NONE, normalize=False).kernel
+# out2,var2 = H_classical_new(x, kernel=Kernel(2, include_center=True, weight=KERNEL_WEIGHT_NONE, normalize=False), return_var=True)
+# dof = 2 / var2
+# HP = 1 - scipy.stats.chi2.cdf(out2, dof)
+# (x>5).astype(int)
+# np.round(out2,1)
+# np.round(HP,1)
 
 # H(x, connectivity=CONNECTIVITY_QUEEN, normalize=False, return_var=False)
 
