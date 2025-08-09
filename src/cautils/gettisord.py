@@ -2,6 +2,7 @@ import numba
 import numpy as np
 import scipy
 import skimage
+from numba.experimental import jitclass
 
 CONNECTIVITY_ROOK = 1
 CONNECTIVITY_QUEEN = 2
@@ -11,23 +12,119 @@ GPVAL_TYPE_COLD = 2
 GPVAL_TYPE_BOTH = 4
 
 
-@numba.njit(parallel=False, cache=True)
-def man_pad(x):
-    xm = np.empty((x.shape[0] + 2, x.shape[1] + 2), dtype=x.dtype)
-    xm[1:-1, 1:-1] = x
-    xm[1:-1, 0] = x[:, 0]
-    xm[1:-1, -1] = x[:, -1]
-    xm[0, 1:-1] = x[0, :]
-    xm[-1, 1:-1] = x[-1, :]
-    xm[0, 0] = x[0, 0]
-    xm[0, -1] = x[0, -1]
-    xm[-1, 0] = x[-1, 0]
-    xm[-1, -1] = x[-1, -1]
+KERNEL_WEIGHT_NONE = 0
+KERNEL_WEIGHT_EXP = 1
+
+@numba.njit(parallel=False, cache=False)
+def get_circular_kernel(distance, include_center=True, weight=KERNEL_WEIGHT_NONE):
+    diameter = int(np.floor(distance) * 2 + 1)
+    mid = (diameter - 1) // 2
+    distancesxy = np.indices((diameter, diameter)) - np.array([mid, mid])[:, np.newaxis, np.newaxis]
+    kernel = np.zeros((diameter, diameter), dtype=np.float64)
+    for i in range(diameter):
+        for j in range(diameter):
+            tmpdist = np.sqrt(distancesxy[0, i, j] ** 2 + distancesxy[1, i, j] ** 2)
+            if weight == KERNEL_WEIGHT_EXP:
+                if tmpdist <= distance:
+                    kernel[i, j] = np.exp(-tmpdist)
+                else:
+                    kernel[i, j] = 0
+            else:
+                kernel[i, j] = tmpdist <= distance
+    if not include_center:
+        kernel[mid, mid] = 0
+    return kernel
+
+# get_circular_kernel(1, weight=KERNEL_WEIGHT_EXP)
+# KERNEL_QUEEN = get_circular_kernel(1.5)
+# KERNEL_ROOK2 = get_circular_kernel(2)
+# KERNEL_ROOK4 = get_circular_kernel(2.5)
+# KERNEL_QUEEN2 = get_circular_kernel(2.9)
+
+
+spec = [
+    ('include_center', numba.boolean),
+    ('diameter', numba.int32),
+    ('distance', numba.float64),
+    ('kernel', numba.float64[:,:]),
+    ('w', numba.float64),
+    ('n', numba.uint64),
+    ('offsets', numba.int64[:,:]),
+    ('kernel_flat', numba.float64[:])
+]
+@jitclass(spec)
+class Kernel:
+    def __init__(self, distance, include_center=True, weight=KERNEL_WEIGHT_EXP, normalize=False):
+        self.include_center = include_center
+        self.distance = distance
+        self.diameter = int(np.floor(distance) * 2 + 1)
+        self.kernel = get_circular_kernel(self.distance, self.include_center, weight=weight)
+        w = np.sum(self.kernel)
+        if normalize:
+            if w > 0:
+                self.kernel /= w
+            else:
+                self.kernel = np.zeros_like(self.kernel)
+        self.w = np.sum(self.kernel)
+        self.n = np.sum(self.kernel>0)
+        indices = np.indices(self.kernel.shape)# - np.array([self.kernel.shape[0] // 2, self.kernel.shape[1] // 2])[:, np.newaxis, np.newaxis]
+        self.offsets = np.zeros((self.n, 2), dtype=np.int64)
+        self.kernel_flat = np.zeros(self.n, dtype=np.float64)
+        idx = 0
+        for i in range(self.kernel.shape[0]):
+            for j in range(self.kernel.shape[1]):
+                if self.kernel[i, j]:
+                    self.offsets[idx] = indices[:, i, j]
+                    self.kernel_flat[idx] = self.kernel[i, j]
+                    idx += 1
+
+# ker = Kernel(2.5, include_center=False, weight=KERNEL_WEIGHT_EXP, normalize=True)
+# ker.kernel
+
+
+@numba.njit(parallel=False, cache=False)
+def man_pad(x, distance=1):
+    xm = np.zeros((x.shape[0] + 2*distance, x.shape[1] + 2*distance), dtype=x.dtype)
+    xm[distance:-distance, distance:-distance] = x
+
+    for d in range(distance):
+        xm[distance:-distance, d] = x[:, 0]
+        xm[distance:-distance, -d-1] = x[:, -1]
+        xm[d, distance:-distance] = x[0, :]
+        xm[-d-1, distance:-distance] = x[-1, :]
+    xm[:distance, :distance] = x[0, 0]
+    xm[:distance, -distance:] = x[0, -1]
+    xm[-distance:, :distance] = x[-1, 0]
+    xm[-distance:, -distance:] = x[-1, -1]
     return xm
+# man_pad(np.random.rand(5, 5), distance=2)
+
+@numba.njit(parallel=True, cache=False)
+def neighborhood_sum(x, kernel: Kernel, xp=None):
+    if xp is None:
+        xp = np.copy(x)
+        for i in range(kernel.diameter//2):
+            xp = man_pad(xp)
+
+    border_offset = kernel.diameter // 2 * 2
+    xcomb = np.zeros_like(x, dtype=np.float64)
+    for i in range(kernel.n):
+        xcomb += xp[kernel.offsets[i, 0]:kernel.offsets[i, 0] + xp.shape[0]-border_offset, kernel.offsets[i, 1]:kernel.offsets[i, 1] + xp.shape[1]-border_offset] * kernel.kernel_flat[i]
+    return xcomb
+
+# x = np.random.rand(100, 100)
+# xp = man_pad(man_pad(x))
+# ker = Kernel(2, False)
+# neighborhood_sum(x, ker, xp=xp)
 
 
-@numba.njit(parallel=True, cache=True)
-def G_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True, Gstar=True):
+@numba.njit(parallel=True, cache=False)
+def G_classical(
+        x, 
+        connectivity=CONNECTIVITY_QUEEN, 
+        normalize=True,
+        Gstar=True
+    ):
     x_sum = np.float64(np.sum(x))
 
     # neighborhood sums
@@ -72,6 +169,52 @@ def G_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True, Gstar=True):
     return Gout
 
 
+
+@numba.njit(parallel=True, cache=False)
+def G_classical_new(
+        x, 
+        kernel=Kernel(1.5, include_center=True, weight=KERNEL_WEIGHT_EXP, normalize=True),
+        normalize=True
+    ):
+    x_sum = np.float64(np.sum(x))
+
+    # neighborhood sums
+    xp = man_pad(x, kernel.diameter // 2)
+    xns = neighborhood_sum(x, kernel, xp=xp)
+    w1 = kernel.w
+    G_indicator = int(not kernel.include_center)
+    if normalize:
+        n = np.float64(x.size)-G_indicator
+        x_mean = (x_sum-x*G_indicator) / n
+        x2 = x**2
+        x2_sum = np.sum(x2)- x2*G_indicator
+        s2 = x2_sum / n - x_mean**2
+        Gout = (xns - x_mean * w1) / np.sqrt(s2 * ((n * w1 - w1**2) / (n - 1)))
+    else:
+        Gout = xns / (x_sum - x * G_indicator)
+    return Gout
+
+# x = np.random.rand(100, 100)
+# x[:2,:2] = 100
+# out = G_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True, Gstar=True)
+# out2 = G_classical_new(x, kernel=Kernel(1.9, include_center=True, weight=KERNEL_WEIGHT_NONE, normalize=False))
+
+# out[:5,:5]
+# out2[:5,:5]
+# np.all(out-out2< 1e-10)
+
+
+# x = np.random.rand(1000, 1000)
+# import timeit
+# import time
+
+# timeit.timeit(lambda: G_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True, Gstar=True), number=100)
+# time.sleep(2)
+# kernel = Kernel(1.9, include_center=True, weight=KERNEL_WEIGHT_NONE, normalize=False)
+# timeit.timeit(lambda: G_classical_new(x, kernel=kernel), number=100)
+
+# np.max(out)
+# np.min(out)
 
 
 @numba.njit(cache=True)
@@ -419,6 +562,7 @@ def G(
     x,
     n_iter=0,
     radius=None,
+    # kernel=Kernel(1.5, include_center=True, weight=KERNEL_WEIGHT_EXP, normalize=True),
     connectivity=CONNECTIVITY_QUEEN,
     seed=42,
     aggregation="min",
