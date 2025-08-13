@@ -3,6 +3,7 @@ import numpy as np
 import scipy
 import skimage
 from numba.experimental import jitclass
+import cv2
 
 CONNECTIVITY_ROOK = 1
 CONNECTIVITY_QUEEN = 2
@@ -83,19 +84,30 @@ class Kernel:
 
 
 @numba.njit(parallel=False, cache=True)
-def man_pad(x, distance=1):
+def man_pad(x, distance=1, pad_type="edge", pad_value=0):
     xm = np.zeros((x.shape[0] + 2*distance, x.shape[1] + 2*distance), dtype=x.dtype)
     xm[distance:-distance, distance:-distance] = x
 
-    for d in range(distance):
-        xm[distance:-distance, d] = x[:, 0]
-        xm[distance:-distance, -d-1] = x[:, -1]
-        xm[d, distance:-distance] = x[0, :]
-        xm[-d-1, distance:-distance] = x[-1, :]
-    xm[:distance, :distance] = x[0, 0]
-    xm[:distance, -distance:] = x[0, -1]
-    xm[-distance:, :distance] = x[-1, 0]
-    xm[-distance:, -distance:] = x[-1, -1]
+    if pad_type == "edge":
+        for d in range(distance):
+            xm[distance:-distance, d] = x[:, 0]
+            xm[distance:-distance, -d-1] = x[:, -1]
+            xm[d, distance:-distance] = x[0, :]
+            xm[-d-1, distance:-distance] = x[-1, :]
+        xm[:distance, :distance] = x[0, 0]
+        xm[:distance, -distance:] = x[0, -1]
+        xm[-distance:, :distance] = x[-1, 0]
+        xm[-distance:, -distance:] = x[-1, -1]
+    if pad_type == "constant" and pad_value!=0:
+        for d in range(distance):
+            xm[distance:-distance, d] = pad_value
+            xm[distance:-distance, -d-1] = pad_value
+            xm[d, distance:-distance] = pad_value
+            xm[-d-1, distance:-distance] = pad_value
+        xm[:distance, :distance] = pad_value
+        xm[:distance, -distance:] = pad_value
+        xm[-distance:, :distance] = pad_value
+        xm[-distance:, -distance:] = pad_value
     return xm
 # man_pad(np.random.rand(5, 5), distance=2)
 
@@ -118,69 +130,15 @@ def neighborhood_sum(x, kernel: Kernel, xp=None):
 # neighborhood_sum(x, ker, xp=xp)
 
 
-@numba.njit(parallel=True, cache=True)
 def G_classical(
         x, 
-        connectivity=CONNECTIVITY_QUEEN, 
-        normalize=True,
-        Gstar=True
-    ):
-    x_sum = np.float64(np.sum(x))
-
-    # neighborhood sums
-    xp = man_pad(x)
-    if connectivity == CONNECTIVITY_QUEEN:
-        xns = (
-            xp[:-2, 1:-1]
-            + xp[1:-1, :-2]
-            + xp[2:, 1:-1]
-            + xp[1:-1, 2:]
-            + xp[:-2, :-2]
-            + xp[:-2, 2:]
-            + xp[2:, :-2]
-            + xp[2:, 2:]
-        )
-    else:
-        xns = (
-            xp[:-2, 1:-1] + xp[1:-1, :-2] + xp[2:, 1:-1] + xp[1:-1, 2:]
-        )
-    if normalize:
-        if Gstar:
-            xns = xns+x
-            w1 = 4 * connectivity + 1
-            n = np.float64(x.size)
-            x_mean = x_sum / n
-            x2_sum = np.sum(x**2)
-            s2 = x2_sum / n - x_mean**2
-            Gout = (xns - x_mean * w1) / np.sqrt(s2 * ((n * w1 - w1**2) / (n - 1)))
-        else:
-            w1 = 4 * connectivity
-            n = np.float64(x.size)-1
-            x_mean = (x_sum-x) / n
-            x2 = x**2
-            x2_sum = np.sum(x2)- x2
-            s2 = x2_sum / n - x_mean**2
-            Gout = (xns - x_mean * w1) / np.sqrt(s2 * ((n * w1 - w1**2) / (n - 1)))
-    else:
-        if Gstar:
-            Gout = (xns+x) / x_sum
-        else:
-            Gout = xns / (x_sum-x)
-    return Gout
-
-
-
-@numba.njit(parallel=True, cache=True)
-def G_classical_new(
-        x, 
-        kernel=Kernel(1.5, include_center=True, weight=KERNEL_WEIGHT_EXP, normalize=True),
+        kernel=Kernel(1.5, include_center=True, weight=KERNEL_WEIGHT_NONE, normalize=False),
         normalize=True
     ):
     x_sum = np.float64(np.sum(x))
 
     # neighborhood sums
-    xp = man_pad(x, kernel.diameter // 2)
-    xns = neighborhood_sum(x, kernel, xp=xp)
+    xns = cv2.filter2D(x, -1, kernel.kernel, borderType=cv2.BORDER_REPLICATE)
     w1 = kernel.w
     G_indicator = int(not kernel.include_center)
     if normalize:
@@ -196,9 +154,31 @@ def G_classical_new(
 
 # x = np.random.rand(100, 100)
 # x[:2,:2] = 100
-# out = G_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True, Gstar=True)
-# out2 = G_classical_new(x, kernel=Kernel(1.9, include_center=True, weight=KERNEL_WEIGHT_NONE, normalize=False))
 
+def G_classical_radius(
+        x, 
+        kernel=Kernel(1.5, include_center=True, weight=KERNEL_WEIGHT_NONE, normalize=False),
+        kernel2=Kernel(50, include_center=True, weight=KERNEL_WEIGHT_NONE, normalize=False),
+        normalize=True
+    ):
+    x_sum = cv2.filter2D(x, -1, kernel2.kernel, borderType=cv2.BORDER_CONSTANT)
+    x_n = cv2.filter2D(np.ones_like(x), -1, kernel2.kernel, borderType=cv2.BORDER_CONSTANT)
+    # neighborhood sums
+    xns = cv2.filter2D(x, -1, kernel.kernel, borderType=cv2.BORDER_REPLICATE)
+    w1 = kernel.w
+    G_indicator = int(not kernel.include_center)
+    if normalize:
+        n = x_n-G_indicator
+        x_mean = (x_sum-x*G_indicator) / n
+        x2_sum = cv2.filter2D(x**2, -1, kernel2.kernel, borderType=cv2.BORDER_CONSTANT)
+        s2 = x2_sum / n - x_mean**2
+        Gout = (xns - x_mean * w1) / np.sqrt(s2 * ((n * w1 - w1**2) / (n - 1)))
+    else:
+        Gout = xns / (x_sum - x * G_indicator)
+    return Gout
+
+# x = np.random.rand(1000, 1000)+1
+# x[:2,:2] = 100
 # out[:5,:5]
 # out2[:5,:5]
 # np.all(out-out2< 1e-10)
@@ -562,13 +542,11 @@ def G(
     x,
     n_iter=0,
     radius=None,
-    # kernel=Kernel(1.5, include_center=True, weight=KERNEL_WEIGHT_EXP, normalize=True),
-    connectivity=CONNECTIVITY_QUEEN,
+    kernel=Kernel(1.5, include_center=True, weight=KERNEL_WEIGHT_NONE, normalize=False),
     seed=42,
     aggregation="min",
     GPtype=GPVAL_TYPE_BOTH,
-    fast=True,
-    Gstar=True
+    fast=True
 ):
     """
     Calculate the G statistic and its p-value (default: hot spots) for a given input array x.
@@ -580,8 +558,8 @@ def G(
         Number of iterations for permutation testing. If 0, the classical G statistic is calculated.
     radius : int or list of int, optional
         Radius for variable permutation. If None, the classical G statistic is calculated.
-    connectivity : int, optional
-        Connectivity type for neighborhood calculation. Default is CONNECTIVITY_QUEEN.
+    kernel : Kernel, optional
+        Kernel object for neighborhood calculation. Default is a disk kernel with radius 1.
     seed : int, optional
         Random seed for reproducibility. Default is 42.
     aggregation : str, optional
@@ -599,16 +577,24 @@ def G(
     which_test = split_GPtype(GPtype)
     all_tests = np.array([GPVAL_TYPE_BOTH, GPVAL_TYPE_COLD, GPVAL_TYPE_HOT])
 
-    # check for possible overflow
-    maxval = np.max(x).astype(np.float64)
-    required_capacity = max((4 * connectivity + 1) * maxval, maxval**2)
-    dtype_limits = [(np.uint16, np.iinfo(np.uint16).max), (np.uint32, np.iinfo(np.uint32).max),(np.uint64, np.iinfo(np.uint64).max)]
-    for dtype, limit in dtype_limits:
-        if required_capacity <= limit:
-            x = x.astype(dtype) if x.dtype != dtype else x
-            break
+    # check for possible overflow if integer
+    if not x.dtype in [float, np.float32,np.float64]:
+        maxval = np.max(x).astype(np.float64)
+        required_capacity = max((kernel.n) * maxval, maxval**2)
+        dtype_limits = [(np.uint16, np.iinfo(np.uint16).max), (np.uint32, np.iinfo(np.uint32).max),(np.uint64, np.iinfo(np.uint64).max)]
+        for dtype, limit in dtype_limits:
+            if required_capacity <= limit:
+                x = x.astype(dtype) if x.dtype != dtype else x
+                break
 
     if n_iter > 0:
+        implemented_kernels_for_permutation = {
+            CONNECTIVITY_ROOK: Kernel(1, include_center=True, weight=KERNEL_WEIGHT_NONE, normalize=False).kernel,
+            CONNECTIVITY_QUEEN: Kernel(1.5, include_center=True, weight=KERNEL_WEIGHT_NONE, normalize=False).kernel,
+        }
+        which_connectivity = np.array([np.all(kernel.kernel == tk) for tk in implemented_kernels_for_permutation.values()])
+        assert np.any(which_connectivity), "only rook and queen neighborhoods are implemented for permutation"
+        connectivity = list(implemented_kernels_for_permutation.keys())[np.where(which_connectivity)[0][0]]
         if radius is not None:
             if isinstance(radius, (list, tuple)):
                 Gm, GPm = G_variable_permutation_multiple(
@@ -641,15 +627,19 @@ def G(
             if fast:
                 G, GP = G_permutation_fast(
                     x, connectivity=connectivity, n_iter=n_iter, seed=seed, GPtype=GPtype,
-                    Gstar=Gstar
+                    Gstar=True
                 )
             else:
                 G, GP = G_permutation(
                     x, connectivity=connectivity, n_iter=n_iter, seed=seed, GPtype=GPtype,
-                    Gstar=Gstar
+                    Gstar=True
                 )
     else:
-        G = G_classical(x, connectivity=connectivity, normalize=True, Gstar=Gstar)
+        if radius is None:
+            G = G_classical(x, kernel=kernel, normalize=True)
+        else:
+            kernel2 = Kernel(radius, include_center=True, weight=KERNEL_WEIGHT_NONE, normalize=False)
+            G = G_classical_radius(x, kernel=kernel, kernel2=kernel2, normalize=True)
         GPtmp = (1.0 - scipy.stats.norm.cdf(np.abs(G))) * 2  # scale to [0,1]
         GP = np.zeros((np.sum(which_test), x.shape[0], x.shape[1]), dtype=np.float64)
         if GPVAL_TYPE_BOTH in all_tests[np.where(which_test == 1)]:
@@ -670,10 +660,12 @@ def G(
     return G, GP
 
 
-# x = np.random.rand(1000, 1000)
+# x = np.random.rand(100, 100)
+# x[:20,:20] += 100
 # x[10:20,10:20] += 100
 # x[80:120,60:130] += 200
 # x[10:20,150:180] += 100
+# G(np.array(x), kernel=Kernel(1.5, include_center=True, weight=KERNEL_WEIGHT_NONE, normalize=False), radius=int(50))
 
 
 # _, GPi = G_permutation(x, connectivity=CONNECTIVITY_QUEEN, n_iter = 999, seed=42)
