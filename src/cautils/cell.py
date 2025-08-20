@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import cautils.permutations as cauperm
 import cautils.radial_intensities as caucirc
 import cautils.intensities as cauint
+import cautils.gettisord as caugettis
 import polars as pl
 import numpy.typing as npt
 
@@ -124,6 +125,21 @@ class Permutation:
         chind = np.concatenate([chind, np.arange(radial_intensity.intensities.shape[1]-10,radial_intensity.intensities.shape[1])])
         return cauperm.get_boundary_permutation_marker(radial_intensity.intensities[idx,chind,:,:], self.combs_arr, self.allowed_combinations_ls[abs(maxdist)-1], ch=-2, thr=1, maxdist=maxdist, normalize=normalize, offset=offset)
 
+    def calculate_permutations(self, experiment: Experiment, radial_intensity: RadialIntensity, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None) -> tuple[np.ndarray, np.ndarray]:
+        if channelname is None:
+            channelname = experiment.channelnames
+        if not isinstance(channelname, list):
+            channelname = [channelname]
+        if not all([ch in experiment.channelnames for ch in channelname]):
+            raise ValueError("Not all channelnames are present")
+        if maxdist is None:
+            maxdist = self.perm_dmax
+        assert maxdist != 0
+
+        chind = np.array([i for ch,i in zip(experiment.channelnames, range(len(experiment.channelnames))) if ch in channelname])
+        chind = np.concatenate([chind, [radial_intensity.intensities.shape[1]-2]]).astype(int)
+
+        return cauperm.get_boundary_permutation_marker_multiple(radial_intensity.intensities[:,chind,:,:], self.combs_arr, self.allowed_combinations, ch=-1, thr=1, maxdist=maxdist, normalize=normalize, offset=offset)
 
     def calculate_permutation_distributions(self, experiment: Experiment, radial_intensity: RadialIntensity, intensity: Intensity, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None) -> tuple[np.ndarray, np.ndarray]:
         if isinstance(channelname, list):
@@ -141,7 +157,7 @@ class Permutation:
         chind = np.array([i for ch,i in zip(experiment.channelnames, range(len(experiment.channelnames))) if ch in channelname])
         chind = np.concatenate([chind, [radial_intensity.intensities.shape[1]-2]]).astype(int)
 
-        hist_data, hist_grid_points = cauperm.get_boundary_permutation_marker_multiple(radial_intensity.intensities[:,chind,:,:], self.combs_arr, self.allowed_combinations, intensity.intensities[:,channelname[0]].to_numpy(), ch=-1, thr=1, maxdist=maxdist, normalize=normalize, offset=offset)
+        hist_data, hist_grid_points = cauperm.get_boundary_permutation_marker_multiple_hist(radial_intensity.intensities[:,chind,:,:], self.combs_arr, self.allowed_combinations, intensity.intensities[:,channelname[0]].to_numpy(), ch=-1, thr=1, maxdist=maxdist, normalize=normalize, offset=offset)
 
         return hist_data[:,1:], hist_grid_points[1:]
         # self.fd = skfda.FDataGrid(
@@ -184,8 +200,11 @@ class Sample:
     def calculate_permutation(self, idx: int = 0, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None) -> np.ndarray:
         return self.permutation.calculate_permutation(experiment=self.experiment, radial_intensity=self.radial_intensity, idx=idx, channelname=channelname, normalize=normalize, offset=offset, maxdist=maxdist)
 
+    def calculate_permutations(self, channelname: None | str = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None) -> tuple[np.ndarray, np.ndarray]:
+        return self.permutation.calculate_permutations(self.experiment, self.radial_intensity, channelname=channelname, normalize=normalize, offset=offset, maxdist=maxdist)
+ 
     def calculate_permutation_distributions(self, channelname: None | str = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None) -> tuple[np.ndarray, np.ndarray]:
-        return self.permutation.calculate_permutation_distributions(self.experiment, self.radial_intensity, self.intensity, channelname=channelname, normalize=normalize, offset=offset, maxdist=maxdist)
+        return self.permutation.calculate_permutation_distributions_hist(self.experiment, self.radial_intensity, self.intensity, channelname=channelname, normalize=normalize, offset=offset, maxdist=maxdist)
     
 #     def plot_cell(self, cellind: int, channelname: str, offset: int = 0, extra=False):
 #         from sklearn.preprocessing import SplineTransformer
@@ -261,7 +280,8 @@ if __name__ == "__main__":
     channelnames[np.argmax(channelnames=="DNA")] = "DNA2"
     channelnames[np.argmax(channelnames=="CD14")] = "CD14_1"
     channelnames[np.argmax(channelnames=="CD14")] = "CD14_2"
-    part=6
+    part=9
+    # part=1
     mask_path = f"/home/retger/Nextcloud/Projects/celltyping_imc/IMC-IF/ROI001_035_PS15.19650-B3/IMC_mask/mask_whole_{part}.tiff"
     mask_nuc_path = f"/home/retger/Nextcloud/Projects/celltyping_imc/IMC-IF/ROI001_035_PS15.19650-B3/IMC_mask/mask_nuc_{part}.tiff"
     image_path = f"/home/retger/Nextcloud/Projects/celltyping_imc/IMC-IF/ROI001_035_PS15.19650-B3/IMC/imc_{part}.tiff"
@@ -269,19 +289,169 @@ if __name__ == "__main__":
     # Read the TIFF file
     image = tifffile.imread(image_path)
     image = image[tb,:,:]
-    mask_all = tifffile.imread(mask_path)[[0,2,3],:,:]
-    mask = mask_all[0,:,:].astype(int)
-    mask_all_nuc = tifffile.imread(mask_nuc_path)[[0,2,3],:,:]
-    mask_nuc = mask_all_nuc[0,:,:].astype(int)
+    image=image.astype(np.float64)
+    for i in range(image.shape[0]):
+        image[i,:,:],_ = caugettis.G(image[i,:,:])
+
+    mask = tifffile.imread(mask_path).astype(int)
+    # mask_nuc = tifffile.imread(mask_nuc_path).astype(int)
+    mask_nuc = tifffile.imread(mask_path).astype(int)
 
     sa = Sample(image, mask, mask, list(channelnames))
     # # sa = Sample(image, mask, mask_nuc, channelnames)
 
     sa.calculate_cell_intensities()
-    sa.calculate_radial_intensities()
-    sa.prepare_permutation(dmax=3)
-    sa.calculate_permutation(0, "CD14_1")
-    sa.calculate_permutation_distributions("CD14_1")
+    # sa.calculate_radial_intensities(scale=2, nangles=16, rmax=24)
+    sa.calculate_radial_intensities(scale=1, nangles=8, rmax=12)
+    sa.prepare_permutation(dmax=2)
+    cellid = 1
+    out1 = sa.calculate_permutation(cellid,"CD14_1")
+    out1 = sa.calculate_permutations(offset=-2)
+    out1.shape
+    chn = "E-Cad"
+    chid = np.argmax(np.array(sa.experiment.channelnames) == chn)
+    mx = np.max(out1, axis=1)
+    mi = np.min(out1, axis=1)
+    ri = np.ptp(out1, axis=1)
+    ms = np.mean(out1, axis=1)
+    md = np.median(out1, axis=1)
+    it = sa.intensity.intensities.to_numpy()
+    sd = np.sqrt(np.var(out1, axis=1))
+    sd[np.argmax(sd[:,chid]),chid]
+    out1[np.argmax(sd[:,chid]),:,chid]
+    se = np.sqrt(np.var(out1, axis=1))/np.mean(out1, axis=1)
+    import matplotlib.pyplot as plt
+    plt.close()
+    fig, ax = plt.subplots(1,2, figsize=(10,10))
+    ax[0].scatter(np.asinh(it[:,chid]), np.asinh(ri[:,chid]), s=1, c='black')
+    ax[0].set_xlabel("Mean")
+    ax[0].set_ylabel("Range")
+    ax[1].scatter(np.asinh(it[:,1]), np.asinh(ri[:,1]), s=1, c='black')
+    ax[1].set_xlabel("Mean")
+    ax[1].set_ylabel("Range")
+    plt.tight_layout()
+    plt.savefig("test.png")
+
+    out = sa.calculate_permutation_distributions("CD14_1")
+    np.sum(out[0][cellid,:]*out[1])/np.sum(out[0][cellid,:])
+
+    def get_max_vals_per_angle(vals, angs):
+        initind = np.argmax(vals)
+        indsls = [initind]
+        potinds = np.arange(len(vals))
+        while(len(potinds)>0):
+            tmppotinds = potinds[potinds!=initind]
+            angsunroll = np.concatenate([angs[tmppotinds], angs[tmppotinds]+8])
+            potindsunroll = np.concatenate([tmppotinds, tmppotinds])
+            tmpd=0.4
+            boolar = np.zeros_like(angs, dtype=bool)
+            while np.sum(boolar) == 0:
+                boolar = np.logical_and(angsunroll > angs[initind], angsunroll < angs[initind]+tmpd)
+                tmpd+=0.4
+                if tmpd>1.1:
+                    break
+            potindsn = potindsunroll[boolar]
+            if len(potindsn)==0:
+                break
+            initindn = potindsn[np.argmax(vals[potindsn])]
+            potinds = potinds[~np.logical_and(angs[potinds]>angs[initind], angs[potinds]<=angs[initindn])]
+            indsls.append(initindn)
+            initind = initindn
+        indsls = np.array(indsls)
+        tmpord = np.argsort(angs[indsls])
+        tmpangs = angs[indsls][tmpord]
+        tmpvals = vals[indsls][tmpord]
+        return tmpangs, tmpvals
+
+
+    # def plot_testcase_single(fig, ax, pltind, sa, cellind, chind, offset, channelname, model, model2):
+    # cellind = 0
+    cellind = 149
+    chind = 0
+    pltind = 0
+    offset = -1
+    channelname = "CD14_1"
+    fig, ax = plt.subplots(2,4, figsize=(20,9), constrained_layout=True)
+    import cv2
+    import matplotlib.patches as patches
+    from sklearn.preprocessing import SplineTransformer
+    from sklearn.linear_model import Ridge, LinearRegression
+    from sklearn.pipeline import make_pipeline
+
+    model = make_pipeline(SplineTransformer(n_knots=16, degree=6, extrapolation="periodic"), Ridge(alpha=1e-1))
+    model2 = make_pipeline(SplineTransformer(n_knots=32, degree=6, extrapolation="periodic"), Ridge(alpha=1e-1))
+
+    timg, p0 = sa.get_cell_image(cellind, rmax=sa.radial_intensity.rmax, return_centroid=True)
+    obn = sa.intensity.intensities.with_row_index().filter(pl.col("index")==cellind)["ObjectNumber"][0]
+    tmpimg = (timg[-10,:,:]==obn).astype(np.uint8)
+    cell_bounds_0 = cv2.findContours(tmpimg, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0][0].reshape(-1,2)
+    cv2.morphologyEx(tmpimg, cv2.MORPH_ERODE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3,3)), dst=tmpimg)
+    cell_bounds_n1 = cv2.findContours(tmpimg, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0][0].reshape(-1,2)
+    tmpimg = (timg[-10,:,:]==obn).astype(np.uint8)
+    cv2.morphologyEx(tmpimg, cv2.MORPH_DILATE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3,3)), dst=tmpimg)
+    cell_bounds_p1 = cv2.findContours(tmpimg, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0][0].reshape(-1,2)
+    pcm = ax[pltind,0].imshow(timg[chind,:,:])
+    poly = patches.Polygon(cell_bounds_0, edgecolor='white', facecolor='none')
+    ax[pltind,0].add_patch(poly)
+    poly = patches.Polygon(cell_bounds_n1, edgecolor='blue', facecolor='none')
+    ax[pltind,0].add_patch(poly)
+    poly = patches.Polygon(cell_bounds_p1, edgecolor='red', facecolor='none')
+    ax[pltind,0].add_patch(poly)
+    ax[pltind,0].scatter(p0[1], p0[0], c='white')
+    ax[pltind,0].set_title(f"Cell {cellind} - Intensity")
+
+    ax[pltind,1].imshow(sa.radial_intensity.intensities[cellind, 0,:,:])
+    ax[pltind,1].set_title(f"Cell {cellind} - Radial intensity")
+    ax[pltind,1].set_xlabel("Distance")
+    ax[pltind,1].set_ylabel("Angle")
+
+    X = np.stack([sa.permutation.perm_mean_angles_full, sa.permutation.perm_mean_len_full], axis=1)
+    Y = sa.calculate_permutation(cellind, offset=offset, channelname=channelname)[:,0]
+    X_p = np.linspace(0, 8, 100)
+    dists = [1,2,3]
+    dlabs = ["A", "B", "C"]
+    y_out = np.zeros((100,len(dists)))
+    for i,d in enumerate(dists):
+        inds = np.logical_and(X[:,1]>=d-0.5, X[:,1]<d+0.5)
+        model.fit(X[inds,:], Y.reshape(-1,1)[inds,:])
+        X_plot = np.stack([X_p, np.repeat(d,100)], axis=1)
+        y_out[:,i] = model.predict(X_plot).reshape(-1)
+    
+    for i in range(y_out.shape[1]):
+        ax[pltind,2].plot(X_p, y_out[:,i], label=f"{dlabs[i]}: {dists[i]-0.5}-{dists[i]+0.5}")
+    pcm = ax[pltind,2].scatter(X[:,0], Y, c=sa.permutation.perm_mean_len_full, s=1)
+    fig.colorbar(pcm, ax=ax[pltind,2], location='right', label = 'Distance')
+
+    vals = sa.calculate_permutation(cellind, offset=offset, channelname=channelname)[:,0]
+    angs = sa.permutation.perm_mean_angles_full
+
+    tmpangs, tmpvals = get_max_vals_per_angle(vals, angs)
+    # ax[pltind,2].plot(tmpangs, tmpvals, c='gray', lw=2)
+
+    model2.fit(tmpangs.reshape(-1,1), tmpvals.reshape(-1,1))
+    Xt2 = np.stack(X_p.reshape(-1,1), axis=1)
+    yt2 = model2.predict(Xt2.reshape(-1,1)).reshape(-1)
+    ax[pltind,2].plot(Xt2.reshape(-1), yt2, c='black', lw=2, label="max")
+    ax[pltind,2].legend()
+    ax[pltind,2].set_title(f"Cell {cellind} - Permutation")
+    ax[pltind,2].set_xlabel("Angle")
+    ax[pltind,2].set_ylabel("Intensity")
+    ax[pltind,2].set_ylim([None, np.max(tmpvals)*1.3])
+
+    ax[pltind,3].plot(X_p, np.diff(y_out, axis=1)[:,0], label=f"{dlabs[0]}-{dlabs[1]}", c = 'gray')
+    ax[pltind,3].plot(X_p, np.diff(y_out, axis=1)[:,1], label=f"{dlabs[1]}-{dlabs[2]}", c="black")
+    ax[pltind,3].legend()
+    ax[pltind,3].set_title(f"Cell {cellind} - Difference")
+    ax[pltind,3].set_xlabel("Angle")
+    ax[pltind,3].set_ylabel("Difference in Intensity")
+
+    fig.suptitle(f"")
+    fig.savefig(f"test_real.png")
+
+
+
+
+
 #     sa.create_permutation_template()
 #     sa.calculate_permutation_template_stats()
 #     perm = sa.calculate_permutation(2)

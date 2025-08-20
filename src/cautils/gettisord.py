@@ -759,28 +759,26 @@ def H_classical(x, connectivity=CONNECTIVITY_QUEEN, normalize=True, return_var=F
     else:
         return Hi, None
 
-@numba.njit(parallel=True, cache=True)
+# @numba.njit(parallel=True, cache=True)
 def H_classical_new(
         x, 
-        kernel=Kernel(1.5, include_center=True, weight=KERNEL_WEIGHT_EXP, normalize=True),
+        kernel=Kernel(1.5, include_center=True, weight=KERNEL_WEIGHT_EXP, normalize=False),
         normalize=True,
         return_var=False,
         a=2.0
     ):
 
     # neighborhood sums
-    xp = man_pad(x, kernel.diameter // 2)
-    xns = neighborhood_sum(x, kernel, xp=xp)
+    xns = cv2.filter2D(x, -1, kernel.kernel, borderType=cv2.BORDER_REPLICATE)
     w1 = kernel.w
     xresid = np.abs((x - xns/w1)) ** a
-    xresidp = man_pad(xresid, kernel.diameter // 2)
     denom = np.mean(xresid) * w1
-    Hi = neighborhood_sum(xresid, kernel, xp=xresidp)/denom
+    Hi = cv2.filter2D(xresid, -1, kernel.kernel, borderType=cv2.BORDER_REPLICATE)/denom
 
     if normalize:
         h1 = denom / w1
         h2 = np.mean(xresid ** 2)
-        n = np.float64((x.shape[0] * x.shape[1]))
+        n = np.float64((x.size))
         w2 = w1
         VarHi = 1 / (n - 1) * (1 / denom) ** 2 * (h2 - h1**2) * ((n * w2) - (w1**2))
         HZi = (2 * Hi) / VarHi

@@ -346,9 +346,16 @@ def get_boundary_permutation_marker(resdmat, combs_arr, allowed_combinations, ch
     else:
         raise ValueError("normalize has to be one of 'all', 'sub', 'none'")
 
+@numba.jit(nopython=True, parallel=True, cache=False)
+def get_boundary_permutation_marker_multiple(resdmata, combs_arr, allowed_combinations, ch=-2, thr=1, maxdist=3, normalize="all", offset=0):
+    permmat = np.zeros((resdmata.shape[0], allowed_combinations.shape[0], resdmata.shape[1]), dtype=np.float64)
+    for i in numba.prange(resdmata.shape[0]):
+        permmat[i,:,:] = get_boundary_permutation_marker(resdmata[i,:,:,:], combs_arr, allowed_combinations, ch=ch, thr=thr, maxdist=maxdist, normalize=normalize, offset=offset)
+    return permmat
+ 
 
 @numba.jit(nopython=True, parallel=True, cache=False)
-def get_boundary_permutation_marker_multiple(resdmata, combs_arr, allowed_combinations, mean_intensities, ch=-2, thr=1, maxdist=3, normalize="all", offset=0):
+def get_boundary_permutation_marker_multiple_hist(resdmata, combs_arr, allowed_combinations, mean_intensities, ch=-2, thr=1, maxdist=3, normalize="all", offset=0):
         n_bins = allowed_combinations.shape[0]//200
         n_bins = n_bins if n_bins>100 else 100
         ranges = np.zeros((resdmata.shape[0], 2))
