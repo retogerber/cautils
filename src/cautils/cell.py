@@ -197,14 +197,14 @@ class Sample:
     def prepare_permutation(self, dmax: int = 3):
         self.permutation = Permutation(nangles=self.radial_intensity.nangles, dmax=dmax)
 
-    def calculate_permutation(self, idx: int = 0, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None, only_incell:bool=True) -> np.ndarray:
-        return self.permutation.calculate_permutation(experiment=self.experiment, radial_intensity=self.radial_intensity, idx=idx, channelname=channelname, normalize=normalize, offset=offset, maxdist=maxdist, only_incell=only_incell)
+    def calculate_permutation(self, idx: int = 0, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None, only_incell:bool=True, thr: float=1.0) -> np.ndarray:
+        return self.permutation.calculate_permutation(experiment=self.experiment, radial_intensity=self.radial_intensity, idx=idx, channelname=channelname, normalize=normalize, offset=offset, maxdist=maxdist, only_incell=only_incell, thr=thr)
 
-    def calculate_permutations(self, channelname: None | str = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None, only_incell: bool=False) -> tuple[np.ndarray, np.ndarray]:
-        return self.permutation.calculate_permutations(self.experiment, self.radial_intensity, channelname=channelname, normalize=normalize, offset=offset, maxdist=maxdist, only_incell=only_incell)
+    def calculate_permutations(self, channelname: None | str = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None, only_incell: bool=False, thr: float= 1.0) -> tuple[np.ndarray, np.ndarray]:
+        return self.permutation.calculate_permutations(self.experiment, self.radial_intensity, channelname=channelname, normalize=normalize, offset=offset, maxdist=maxdist, only_incell=only_incell, thr=thr)
  
-    def calculate_permutation_distributions(self, channelname: None | str = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None) -> tuple[np.ndarray, np.ndarray]:
-        return self.permutation.calculate_permutation_distributions_hist(self.experiment, self.radial_intensity, self.intensity, channelname=channelname, normalize=normalize, offset=offset, maxdist=maxdist)
+    def calculate_permutation_distributions(self, channelname: None | str = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None, thr:float=1.0) -> tuple[np.ndarray, np.ndarray]:
+        return self.permutation.calculate_permutation_distributions_hist(self.experiment, self.radial_intensity, self.intensity, channelname=channelname, normalize=normalize, offset=offset, maxdist=maxdist, thr=thr)
     
 #     def plot_cell(self, cellind: int, channelname: str, offset: int = 0, extra=False):
 #         from sklearn.preprocessing import SplineTransformer
