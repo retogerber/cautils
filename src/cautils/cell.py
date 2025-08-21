@@ -110,7 +110,7 @@ class Permutation:
             return np.diff(np.array([len(combs[ac]) for ac in acl]+[0]))*-1
         self.perm_mean_len_full = np.array([np.sum(np.arange(1,self.allowed_combinations[i].shape[0]+1) * len_per_layer(combs, self.allowed_combinations[i]) )/sum(len_per_layer(combs, self.allowed_combinations[i])) for i in range(len(self.allowed_combinations))])
 
-    def calculate_permutation(self, experiment: Experiment, radial_intensity: RadialIntensity, idx: int = 0, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None) -> np.ndarray:
+    def calculate_permutation(self, experiment: Experiment, radial_intensity: RadialIntensity, idx: int = 0, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None, only_incell: bool=False) -> np.ndarray:
         if channelname is None:
             channelname = experiment.channelnames
         if not isinstance(channelname, list):
@@ -123,7 +123,7 @@ class Permutation:
 
         chind = np.array([i for ch,i in zip(experiment.channelnames, range(len(experiment.channelnames))) if ch in channelname])
         chind = np.concatenate([chind, np.arange(radial_intensity.intensities.shape[1]-10,radial_intensity.intensities.shape[1])])
-        return cauperm.get_boundary_permutation_marker(radial_intensity.intensities[idx,chind,:,:], self.combs_arr, self.allowed_combinations_ls[abs(maxdist)-1], ch=-2, thr=1, maxdist=maxdist, normalize=normalize, offset=offset)
+        return cauperm.get_boundary_permutation_marker(radial_intensity.intensities[idx,chind,:,:], self.combs_arr, self.allowed_combinations_ls[abs(maxdist)-1], ch=-2, thr=1, maxdist=maxdist, normalize=normalize, offset=offset, only_incell=only_incell)
 
     def calculate_permutations(self, experiment: Experiment, radial_intensity: RadialIntensity, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None, only_incell: bool = False) -> tuple[np.ndarray, np.ndarray]:
         if channelname is None:
@@ -197,8 +197,8 @@ class Sample:
     def prepare_permutation(self, dmax: int = 3):
         self.permutation = Permutation(nangles=self.radial_intensity.nangles, dmax=dmax)
 
-    def calculate_permutation(self, idx: int = 0, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None) -> np.ndarray:
-        return self.permutation.calculate_permutation(experiment=self.experiment, radial_intensity=self.radial_intensity, idx=idx, channelname=channelname, normalize=normalize, offset=offset, maxdist=maxdist)
+    def calculate_permutation(self, idx: int = 0, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None, only_incell:bool=True) -> np.ndarray:
+        return self.permutation.calculate_permutation(experiment=self.experiment, radial_intensity=self.radial_intensity, idx=idx, channelname=channelname, normalize=normalize, offset=offset, maxdist=maxdist, only_incell=only_incell)
 
     def calculate_permutations(self, channelname: None | str = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None, only_incell: bool=False) -> tuple[np.ndarray, np.ndarray]:
         return self.permutation.calculate_permutations(self.experiment, self.radial_intensity, channelname=channelname, normalize=normalize, offset=offset, maxdist=maxdist, only_incell=only_incell)
@@ -305,7 +305,9 @@ if __name__ == "__main__":
     sa.calculate_radial_intensities(scale=1, nangles=8, rmax=16)
     sa.prepare_permutation(dmax=2)
     cellid = 1
-    out1 = sa.calculate_permutation(cellid,"CD14_1")
+    out1 = sa.calculate_permutation(cellid,"CD14_1", only_incell=False)
+    out2 = sa.calculate_permutation(cellid,"CD14_1", only_incell=True)
+    out1 = sa.calculate_permutations(offset=-2, only_incell=True)
     out1 = sa.calculate_permutations(offset=-2, only_incell=True)
     out1.shape
     chn = "E-Cad"
