@@ -110,7 +110,7 @@ class Permutation:
             return np.diff(np.array([len(combs[ac]) for ac in acl]+[0]))*-1
         self.perm_mean_len_full = np.array([np.sum(np.arange(1,self.allowed_combinations[i].shape[0]+1) * len_per_layer(combs, self.allowed_combinations[i]) )/sum(len_per_layer(combs, self.allowed_combinations[i])) for i in range(len(self.allowed_combinations))])
 
-    def calculate_permutation(self, experiment: Experiment, radial_intensity: RadialIntensity, idx: int = 0, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None, only_incell: bool=False) -> np.ndarray:
+    def calculate_permutation(self, experiment: Experiment, radial_intensity: RadialIntensity, idx: int = 0, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None, only_incell: bool=False, thr: float = 1) -> np.ndarray:
         if channelname is None:
             channelname = experiment.channelnames
         if not isinstance(channelname, list):
@@ -123,9 +123,9 @@ class Permutation:
 
         chind = np.array([i for ch,i in zip(experiment.channelnames, range(len(experiment.channelnames))) if ch in channelname])
         chind = np.concatenate([chind, np.arange(radial_intensity.intensities.shape[1]-10,radial_intensity.intensities.shape[1])])
-        return cauperm.get_boundary_permutation_marker(radial_intensity.intensities[idx,chind,:,:], self.combs_arr, self.allowed_combinations_ls[abs(maxdist)-1], ch=-2, thr=1, maxdist=maxdist, normalize=normalize, offset=offset, only_incell=only_incell)
+        return cauperm.get_boundary_permutation_marker(radial_intensity.intensities[idx,chind,:,:], self.combs_arr, self.allowed_combinations_ls[abs(maxdist)-1], ch=-2, thr=thr, maxdist=maxdist, normalize=normalize, offset=offset, only_incell=only_incell)
 
-    def calculate_permutations(self, experiment: Experiment, radial_intensity: RadialIntensity, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None, only_incell: bool = False) -> tuple[np.ndarray, np.ndarray]:
+    def calculate_permutations(self, experiment: Experiment, radial_intensity: RadialIntensity, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None, only_incell: bool = False, thr: float = 1) -> tuple[np.ndarray, np.ndarray]:
         if channelname is None:
             channelname = experiment.channelnames
         if not isinstance(channelname, list):
@@ -139,9 +139,9 @@ class Permutation:
         chind = np.array([i for ch,i in zip(experiment.channelnames, range(len(experiment.channelnames))) if ch in channelname])
         chind = np.concatenate([chind, [radial_intensity.intensities.shape[1]-2]]).astype(int)
 
-        return cauperm.get_boundary_permutation_marker_multiple(radial_intensity.intensities[:,chind,:,:], self.combs_arr, self.allowed_combinations, ch=-1, thr=1, maxdist=maxdist, normalize=normalize, offset=offset, only_incell=only_incell)
+        return cauperm.get_boundary_permutation_marker_multiple(radial_intensity.intensities[:,chind,:,:], self.combs_arr, self.allowed_combinations, ch=-1, thr=thr, maxdist=maxdist, normalize=normalize, offset=offset, only_incell=only_incell)
 
-    def calculate_permutation_distributions(self, experiment: Experiment, radial_intensity: RadialIntensity, intensity: Intensity, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None) -> tuple[np.ndarray, np.ndarray]:
+    def calculate_permutation_distributions(self, experiment: Experiment, radial_intensity: RadialIntensity, intensity: Intensity, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None, thr: float = 1) -> tuple[np.ndarray, np.ndarray]:
         if isinstance(channelname, list):
             assert len(channelname)==1, "only a single channel can be specified"
         if channelname is None:
@@ -157,7 +157,7 @@ class Permutation:
         chind = np.array([i for ch,i in zip(experiment.channelnames, range(len(experiment.channelnames))) if ch in channelname])
         chind = np.concatenate([chind, [radial_intensity.intensities.shape[1]-2]]).astype(int)
 
-        hist_data, hist_grid_points = cauperm.get_boundary_permutation_marker_multiple_hist(radial_intensity.intensities[:,chind,:,:], self.combs_arr, self.allowed_combinations, intensity.intensities[:,channelname[0]].to_numpy(), ch=-1, thr=1, maxdist=maxdist, normalize=normalize, offset=offset)
+        hist_data, hist_grid_points = cauperm.get_boundary_permutation_marker_multiple_hist(radial_intensity.intensities[:,chind,:,:], self.combs_arr, self.allowed_combinations, intensity.intensities[:,channelname[0]].to_numpy(), ch=-1, thr=thr, maxdist=maxdist, normalize=normalize, offset=offset)
 
         return hist_data[:,1:], hist_grid_points[1:]
         # self.fd = skfda.FDataGrid(
