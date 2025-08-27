@@ -4,7 +4,7 @@ import numba
 import itertools
 
 
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def get_nuclei_boundary(resdmat: npt.NDArray, ch:int=-2, thr:float=1, maxdist:int = 3, offset:int=0) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     nuclei_boundary_outer = np.zeros(resdmat.shape[1], dtype=np.uint8)
     nuclei_boundary_inner = np.zeros(resdmat.shape[1], dtype=np.uint8)
@@ -25,7 +25,7 @@ def get_nuclei_boundary(resdmat: npt.NDArray, ch:int=-2, thr:float=1, maxdist:in
     return nuclei_boundary_inner, nuclei_boundary_outer, nuclei_boundary_max
 
 # (resdmat[-2,:,:]==1).astype(int)
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def get_nuclei_sum_marker(resdmat: npt.NDArray, nuclei_boundary_inner: npt.NDArray, nuclei_boundary_outer: npt.NDArray) -> np.ndarray:
     nuclei_marker_long = np.zeros((resdmat.shape[0]+1, resdmat.shape[1]))
     for i in range(resdmat.shape[1]):
@@ -34,7 +34,7 @@ def get_nuclei_sum_marker(resdmat: npt.NDArray, nuclei_boundary_inner: npt.NDArr
     nuclei_marker = np.sum(nuclei_marker_long,axis=1)
     return nuclei_marker
 
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def subset_resdmat(resdmat: npt.NDArray, nuclei_boundary_outer: npt.NDArray, nuclei_boundary_max: npt.NDArray) -> np.ndarray:
     maxdist = set(nuclei_boundary_max-nuclei_boundary_outer)
     assert len(maxdist)==1, "Not all values exist, reduce max distance!"
@@ -67,7 +67,7 @@ def get_combinations(indexes: list[int], return_array: bool = False) -> np.ndarr
 #                     allowed_combinations.append([i,j])
 #     return np.array(allowed_combinations)
 
-# @numba.jit(nopython=True, parallel=False, cache=False)
+# @numba.jit(nopython=True, parallel=False, cache=True)
 # def get_combinations_lx(combs_arr, permutations_arr):
 #     l = permutations_arr.shape[1]
 #     allowed_combinations = []
@@ -90,7 +90,7 @@ def get_combinations(indexes: list[int], return_array: bool = False) -> np.ndarr
 #                 allowed_combinations.append(inds)
 #     return allowed_combinations
 
-# @numba.jit(nopython=True, parallel=False, cache=False)
+# @numba.jit(nopython=True, parallel=False, cache=True)
 # def filter_combinations(combs_arr, allowed_combinations):
 #     bi_len_to_keep = np.zeros(combs_arr.shape[0], dtype=numba.boolean)
 #     for i in range(combs_arr.shape[0]):
@@ -121,7 +121,7 @@ def get_combinations(indexes: list[int], return_array: bool = False) -> np.ndarr
 #     return allowed_combinations_filt[bi_dir_to_keep]
 
 
-# @numba.jit(nopython=True, parallel=False, cache=False)
+# @numba.jit(nopython=True, parallel=False, cache=True)
 # def perm_generator(n: int, dim: int):
 #     counter = [0]*dim 
 #     # counter = np.zeros(dim, dtype=np.uint16)
@@ -139,7 +139,7 @@ def get_combinations(indexes: list[int], return_array: bool = False) -> np.ndarr
 # for co in perm_generator(n,dim):
 #     print(co)
 
-# @numba.jit(nopython=True, parallel=False, cache=False)
+# @numba.jit(nopython=True, parallel=False, cache=True)
 # def get_combinations_lx_filter(combs_arr, dmax):
 
 #     # only allow maximum number of fields per layer,
@@ -195,7 +195,7 @@ def get_combinations(indexes: list[int], return_array: bool = False) -> np.ndarr
 #                 inds[i+1] += 1
 #     return allowed_combinations
 
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def meshgrid_like(dmax: int, width: int) -> np.ndarray:
     par_out = np.zeros((dmax**width,width), dtype=np.uint8)
     stepsizes = [dmax**i for i in range(width)]
@@ -206,7 +206,7 @@ def meshgrid_like(dmax: int, width: int) -> np.ndarray:
             c += stepsizes[i]
     return par_out
 
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def get_combinations_lx_filter(combs_arr: npt.NDArray, dmax: int) -> np.ndarray:
     # maximum width of permutation (less than half of the number of angles)
     max_width = combs_arr.shape[1]//2-1
@@ -249,7 +249,7 @@ def get_combinations_lx_filter(combs_arr: npt.NDArray, dmax: int) -> np.ndarray:
 # len(out)
 # permutations_arr = np.stack(np.meshgrid(*[list(range(combs_arr.shape[0])) for _ in range(dmax)])).swapaxes(0,dmax).reshape(-1,dmax)
 
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def calculate_single_distance_marker_sums(resdmat_sub: npt.NDArray, combs_arr: npt.NDArray, maxdist: int = 3, ch=None)-> np.ndarray:
     nind = int(resdmat_sub.shape[0])
     nls = np.zeros((combs_arr.shape[0], maxdist, resdmat_sub.shape[0]+1), dtype=np.float64)
@@ -267,7 +267,7 @@ def calculate_single_distance_marker_sums(resdmat_sub: npt.NDArray, combs_arr: n
                 nls[i,j,:-1] = np.sum(resdmat_sub[:,co,j],axis=1)
     return nls
 
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def calculate_all_distance_marker_sums(resdmat_sub: npt.NDArray, allowed_combinations: npt.NDArray, nls: npt.NDArray, maxdist: int = 3) -> np.ndarray:
     lac = len(allowed_combinations)
     if allowed_combinations.shape[1]>2:
@@ -289,7 +289,7 @@ def calculate_all_distance_marker_sums(resdmat_sub: npt.NDArray, allowed_combina
 # out = calculate_all_distance_marker_sums(resdmat_sub, allowed_combinations, nls)
 
 
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def normalize_marker(nnls, nuclei_marker, normalize="all", invert=False):
     if invert:
         if normalize=="all":
@@ -311,7 +311,7 @@ def normalize_marker(nnls, nuclei_marker, normalize="all", invert=False):
             nnlsnorm = nnls[:,:-1]
     return nnlsnorm
 
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def get_max_shrinkage(resdmat, ch=-2, thr=1, maxdist=3, offset=0):
     nuclei_boundary_inner, nuclei_boundary_outer, _ = get_nuclei_boundary(resdmat, ch=ch, thr=thr, maxdist = np.abs(maxdist), offset=offset)
     nuc_diff = nuclei_boundary_outer-nuclei_boundary_inner
@@ -326,7 +326,7 @@ def get_max_shrinkage(resdmat, ch=-2, thr=1, maxdist=3, offset=0):
 #     nuclei_boundary_inner, nuclei_boundary_outer, nuclei_boundary_max = get_nuclei_boundary(resdmat, ch=ch, thr=thr, maxdist = np.abs(maxdist), offset=offset)
 #     nuc_diff = nuclei_boundary_outer-nuclei_boundary_inner
 #     res.append(np.all((nuc_diff)>=-maxdist))
-@numba.jit(nopython=True, parallel=False, cache=False)
+@numba.jit(nopython=True, parallel=False, cache=True)
 def get_boundary_permutation_marker(resdmat, combs_arr, allowed_combinations, ch=-2, thr=1, maxdist=3, normalize="all", offset=0, only_incell=False):
     nuclei_boundary_inner, nuclei_boundary_outer, nuclei_boundary_max = get_nuclei_boundary(resdmat, ch=ch, thr=thr, maxdist = np.abs(maxdist), offset=offset)
     if np.any(nuclei_boundary_max>=resdmat.shape[2]):
@@ -357,7 +357,7 @@ def get_boundary_permutation_marker(resdmat, combs_arr, allowed_combinations, ch
     else:
         raise ValueError("normalize has to be one of 'all', 'sub', 'none'")
 
-@numba.jit(nopython=True, parallel=True, cache=False)
+@numba.jit(nopython=True, parallel=True, cache=True)
 def get_boundary_permutation_marker_multiple(resdmata, combs_arr, allowed_combinations, ch=-2, thr=1, maxdist=3, normalize="all", offset=0,only_incell=False):
     permmat = np.zeros((resdmata.shape[0], allowed_combinations.shape[0], resdmata.shape[1]), dtype=np.float64)
     for i in numba.prange(resdmata.shape[0]):
@@ -365,7 +365,7 @@ def get_boundary_permutation_marker_multiple(resdmata, combs_arr, allowed_combin
     return permmat
  
 
-@numba.jit(nopython=True, parallel=True, cache=False)
+@numba.jit(nopython=True, parallel=True, cache=True)
 def get_boundary_permutation_marker_multiple_hist(resdmata, combs_arr, allowed_combinations, mean_intensities, ch=-2, thr=1, maxdist=3, normalize="all", offset=0, only_incell=False):
         n_bins = allowed_combinations.shape[0]//200
         n_bins = n_bins if n_bins>100 else 100
@@ -396,11 +396,21 @@ def get_boundary_permutation_marker_multiple_hist(resdmata, combs_arr, allowed_c
 # combs_arr=sa.permutation.combs_arr
 # allowed_combinations=sa.permutation.allowed_combinations
 # mean_intensities=sa.intensity.intensities[:,chn].to_numpy()
-# ch=-1
+# ch=-2
 # thr=1
 # maxdist=3
 # normalize="all"
-# resdmat = resdmata[0,:,:,:]
+# np.sum(resdmata[:,ch,:,:],axis=(1,2))
+# resdmat = resdmata[2,:,:,:]
+# resdmat[chid,:,:]
+# resdmat[ch,:,:]
+
+# import matplotlib.pyplot as plt
+# fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+# ax[0].imshow(resdmat[ch,:,:], cmap="gray")
+# ax[1].imshow(resdmat[chid,:,:], cmap="gray")
+# plt.tight_layout()
+# plt.savefig("test.png", dpi=300)
 
 # resdmata = sa.radial_intensities
 # combs_arr = sa.combs_arr
