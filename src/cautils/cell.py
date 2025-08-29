@@ -85,19 +85,18 @@ class Permutation:
         assert dmax > 0, "dmax must be greater than 0"
         assert dmax < 10, "dmax must be less than 4"
 
-        self.combs_arr = cauperm.get_combinations(tuple(range(nangles)), return_array=True)
-        combs_tuple = tuple(map(tuple, self.combs_arr))
+        self.combs_arr = cauperm.get_combinations(list(range(nangles)), return_array=True)
 
         allowed_combinations_ls = []
         for i in range(1,dmax+1):
-            allowed_combinations_ls.append(cauperm.get_combinations_lx_filter_cache(combs_tuple, i, minp_width=minp, maxp_width=maxp))
+            allowed_combinations_ls.append(cauperm.get_combinations_lx_filter(self.combs_arr, i, minp_width=minp, maxp_width=maxp))
         self.allowed_combinations_ls = allowed_combinations_ls
 
-        self.allowed_combinations = cauperm.get_combinations_lx_filter_cache(combs_tuple, dmax, minp_width=minp, maxp_width=maxp)
+        self.allowed_combinations = cauperm.get_combinations_lx_filter(self.combs_arr, dmax, minp_width=minp, maxp_width=maxp)
         self.perm_dmax = dmax
 
     def calculate_permutation_template_stats(self):
-        combs = cauperm.get_combinations(tuple(range(self.nangles)), return_array=False)
+        combs = cauperm.get_combinations(list(range(self.nangles)), return_array=False)
 
         self.perm_mean_angles_full = np.array([ scipy.stats.circmean([c for ac in self.allowed_combinations[i] for c in combs[ac]], high=8-1e-12, low=0) for i in range(self.allowed_combinations.shape[0]) ])
 
