@@ -2,6 +2,7 @@ import numpy as np
 import numpy.typing as npt
 import numba
 import itertools
+import functools
 
 
 @numba.jit(nopython=True, parallel=False, cache=True)
@@ -45,7 +46,9 @@ def subset_resdmat(resdmat: npt.NDArray, nuclei_boundary_outer: npt.NDArray, nuc
         resdmat_sub[:,i,:] = resdmat[:,i,(nuclei_boundary_outer[i]):(nuclei_boundary_max[i])]
     return resdmat_sub
 
-def get_combinations(indexes: list[int], return_array: bool = False) -> np.ndarray:
+
+@functools.cache
+def get_combinations(indexes: tuple[int], return_array: bool = False) -> np.ndarray:
     assert all(np.array(indexes)<254)
     combs = []
     for i in range(0,len(indexes)+1):
@@ -206,11 +209,18 @@ def meshgrid_like(dmax: int, width: int) -> np.ndarray:
             c += stepsizes[i]
     return par_out
 
+
+@functools.cache
+def get_combinations_lx_filter_cache(combs_arr: tuple, dmax: int, minp_width:float= 0.0, maxp_width: float=0.4) -> np.ndarray:
+    combs_arr = np.array(combs_arr)
+    return get_combinations_lx_filter(combs_arr=combs_arr, dmax=dmax, minp_width=minp_width, maxp_width=maxp_width )
+
 @numba.jit(nopython=True, parallel=False, cache=True)
-def get_combinations_lx_filter(combs_arr: npt.NDArray, dmax: int) -> np.ndarray:
+def get_combinations_lx_filter(combs_arr: npt.NDArray, dmax: int, minp_width:float= 0.0, maxp_width: float=0.4) -> np.ndarray:
     # maximum width of permutation (less than half of the number of angles)
-    max_width = combs_arr.shape[1]//2-1
-    width_ls = list(range(1,max_width+1))
+    max_width = int(combs_arr.shape[1]*maxp_width)
+    min_width = int(combs_arr.shape[1]*minp_width)
+    width_ls = list(range(min_width,max_width+1))
     # all single layer possible combinations
     par_ls = [meshgrid_like(dmax, width) for width in width_ls]
     lens = [par.shape[0]*combs_arr.shape[1] for par in par_ls]

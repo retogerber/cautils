@@ -75,28 +75,29 @@ class RadialIntensity:
 
 
 class Permutation:
-    def __init__(self, nangles: int = 8, dmax: int = 3):
+    def __init__(self, nangles: int = 8, dmax: int = 3, minp: float = 0, maxp: float = 1):
         self.nangles = nangles
         self.dmax = dmax
-        self.create_permutation_template(nangles=self.nangles, dmax=self.dmax)
+        self.create_permutation_template(nangles=self.nangles, dmax=self.dmax, minp=minp, maxp=maxp)
         self.calculate_permutation_template_stats()
-    
-    def create_permutation_template(self, nangles: int = 8, dmax: int = 3):
+
+    def create_permutation_template(self, nangles: int = 8, dmax: int = 3, minp: float = 0, maxp: float = 0.4):
         assert dmax > 0, "dmax must be greater than 0"
         assert dmax < 10, "dmax must be less than 4"
 
-        self.combs_arr = cauperm.get_combinations(list(range(nangles)), return_array=True)
+        self.combs_arr = cauperm.get_combinations(tuple(range(nangles)), return_array=True)
+        combs_tuple = tuple(map(tuple, self.combs_arr))
 
         allowed_combinations_ls = []
         for i in range(1,dmax+1):
-            allowed_combinations_ls.append(cauperm.get_combinations_lx_filter(self.combs_arr, i))
+            allowed_combinations_ls.append(cauperm.get_combinations_lx_filter_cache(combs_tuple, i, minp_width=minp, maxp_width=maxp))
         self.allowed_combinations_ls = allowed_combinations_ls
 
-        self.allowed_combinations = cauperm.get_combinations_lx_filter(self.combs_arr, dmax)
+        self.allowed_combinations = cauperm.get_combinations_lx_filter_cache(combs_tuple, dmax, minp_width=minp, maxp_width=maxp)
         self.perm_dmax = dmax
 
     def calculate_permutation_template_stats(self):
-        combs = cauperm.get_combinations(list(range(self.nangles)), return_array=False)
+        combs = cauperm.get_combinations(tuple(range(self.nangles)), return_array=False)
 
         self.perm_mean_angles_full = np.array([ scipy.stats.circmean([c for ac in self.allowed_combinations[i] for c in combs[ac]], high=8-1e-12, low=0) for i in range(self.allowed_combinations.shape[0]) ])
 
@@ -194,8 +195,8 @@ class Sample:
         self.radial_intensity = RadialIntensity(rmax=rmax, nangles=nangles, scale=scale, resolution=self.experiment.resolution)
         self.radial_intensity.calculate_radial_intensities(self.experiment, self.intensity)
 
-    def prepare_permutation(self, dmax: int = 3):
-        self.permutation = Permutation(nangles=self.radial_intensity.nangles, dmax=dmax)
+    def prepare_permutation(self, dmax: int = 3, minp: float = 0, maxp: float = 0.4):
+        self.permutation = Permutation(nangles=self.radial_intensity.nangles, dmax=dmax, minp=minp, maxp=maxp)
 
     def calculate_permutation(self, idx: int = 0, channelname: None | str | list[str] = None, normalize: str = "all", offset: int = 0, maxdist: None|int = None, only_incell:bool=True, thr: float=1.0) -> np.ndarray:
         return self.permutation.calculate_permutation(experiment=self.experiment, radial_intensity=self.radial_intensity, idx=idx, channelname=channelname, normalize=normalize, offset=offset, maxdist=maxdist, only_incell=only_incell, thr=thr)
@@ -289,9 +290,9 @@ if __name__ == "__main__":
     # Read the TIFF file
     image = tifffile.imread(image_path)
     image = image[tb,:,:]
-    image=image.astype(np.float64)
-    for i in range(image.shape[0]):
-        image[i,:,:],_ = caugettis.G(image[i,:,:])
+    # image=image.astype(np.float64)
+    # for i in range(image.shape[0]):
+    #     image[i,:,:],_ = caugettis.G(image[i,:,:])
 
     mask = tifffile.imread(mask_path).astype(int)
     # mask_nuc = tifffile.imread(mask_nuc_path).astype(int)
@@ -302,8 +303,15 @@ if __name__ == "__main__":
 
     sa.calculate_cell_intensities()
     # sa.calculate_radial_intensities(scale=2, nangles=16, rmax=24)
-    sa.calculate_radial_intensities(scale=1, nangles=8, rmax=16)
-    sa.prepare_permutation(dmax=2)
+    sa.calculate_radial_intensities(scale=3, nangles=16, rmax=16)
+    sa.prepare_permutation(dmax=1, minp=0.7, maxp=1)
+
+    combs_tuple = tuple(map(tuple, sa.permutation.combs_arr))
+    cauperm.get_combinations_lx_filter_cache(combs_tuple, 2, minp_width=0.8, maxp_width=1)
+    cauperm.get_combinations_lx_filter(sa.permutation.combs_arr, 1, minp_width=0.8, maxp_width=1)
+
+
+    sa.permutation.allowed_combinations.shape
     cellid = 1
     out1 = sa.calculate_permutation(cellid,"CD14_1", only_incell=False)
     out2 = sa.calculate_permutation(cellid,"CD14_1", only_incell=True)
