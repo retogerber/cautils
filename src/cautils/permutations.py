@@ -2,7 +2,6 @@ import numpy as np
 import numpy.typing as npt
 import numba
 import itertools
-import functools
 
 
 @numba.jit(nopython=True, parallel=False, cache=True)
@@ -47,8 +46,7 @@ def subset_resdmat(resdmat: npt.NDArray, nuclei_boundary_outer: npt.NDArray, nuc
     return resdmat_sub
 
 
-@functools.cache
-def get_combinations(indexes: tuple[int], return_array: bool = False) -> np.ndarray:
+def get_combinations(indexes: list[int], return_array: bool = False) -> np.ndarray:
     assert all(np.array(indexes)<254)
     combs = []
     for i in range(0,len(indexes)+1):
@@ -209,11 +207,6 @@ def meshgrid_like(dmax: int, width: int) -> np.ndarray:
             c += stepsizes[i]
     return par_out
 
-
-@functools.cache
-def get_combinations_lx_filter_cache(combs_arr: tuple, dmax: int, minp_width:float= 0.0, maxp_width: float=0.4) -> np.ndarray:
-    combs_arr = np.array(combs_arr)
-    return get_combinations_lx_filter(combs_arr=combs_arr, dmax=dmax, minp_width=minp_width, maxp_width=maxp_width )
 
 @numba.jit(nopython=True, parallel=False, cache=True)
 def get_combinations_lx_filter(combs_arr: npt.NDArray, dmax: int, minp_width:float= 0.0, maxp_width: float=0.4) -> np.ndarray:
