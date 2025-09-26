@@ -288,7 +288,7 @@ def get_random_masks(mask, n=2, pad=None, affine_options={}):
         pad = get_padding(mask, create_affine_transforms(compose_affine_combinations(**tmp_affine_options)))
 
     label, bbox = bbox_label(mask)
-    centers = np.stack(((bbox[:,2]-bbox[:,0]-1)/2, (bbox[:,3]-bbox[:,1]-1)/2), axis=1)
+    centers = np.stack(((bbox[:,2]-bbox[:,0])/2, (bbox[:,3]-bbox[:,1])/2), axis=1)
     # account for padding
     centers[:,0]  = centers[:,0]+bbox[:,0]-np.clip(bbox[:,0]-pad,0, mask.shape[0])
     centers[:,1]  = centers[:,1]+bbox[:,1]-np.clip(bbox[:,1]-pad,0, mask.shape[1])
