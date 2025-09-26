@@ -6,6 +6,7 @@ import tqdm
 from itertools import product
 from numba.experimental import jitclass
 import scipy
+from cautils.score import bbox_label
 
 
 spec = [
@@ -89,7 +90,7 @@ class AffineTransformList:
 # AffineTransformList(l).get_matrices()
 
 
-@numba.jit(cache=False)
+@numba.jit(cache=True)
 def create_affine_transform(translate: np.float32, rotate: np.float32, scale: np.float32, shear: np.float32, center: np.float32 = np.array((0,0), dtype=np.float32)):
     """Create AffineTransform from translation, rotation, scale, shear."""
     theta = rotate
@@ -115,7 +116,7 @@ def create_affine_transform(translate: np.float32, rotate: np.float32, scale: np
 # create_affine_transform((1,2), 0.25*np.pi, (1,1), (0,0)).get_matrix_c((1,1))
 
 
-@numba.jit(cache=False)
+@numba.jit(cache=True)
 def create_affine_transforms(combs, center = np.array((0,0), dtype=np.float32)):
     l = numba.typed.List()
     for i in range(combs.shape[0]):
@@ -137,33 +138,6 @@ def create_affine_transforms(combs, center = np.array((0,0), dtype=np.float32)):
 # atl.set_center(np.array((5,5), dtype=np.float32))
 # atl.set_centers(np.repeat(np.array((5,5), dtype=np.float32).reshape(1,2), (combs.shape[0]), axis=0))
 # atl.get_matrices()
-
-
-@numba.njit(cache=False)
-def bbox_label(mask):
-    maxval = int(np.max(mask) + 1)
-    labels = np.zeros((maxval, 2), dtype=np.uint32)
-    labels[:, 0] = np.arange(maxval)
-    bboxs = np.zeros((maxval, 4), dtype=np.int64)
-    bboxs[:, 0] = np.max(np.array(mask.shape)) + 1
-    bboxs[:, 1] = np.max(np.array(mask.shape)) + 1
-    for i in range(mask.shape[0]):
-        for j in range(mask.shape[1]):
-            if mask[i, j] != 0:
-                labels[mask[i, j], 1] = 1
-                if i < bboxs[mask[i, j], 0]:
-                    bboxs[mask[i, j], 0] = i
-                if i + 1 > bboxs[mask[i, j], 2]:
-                    bboxs[mask[i, j], 2] = i + 1
-                if j < bboxs[mask[i, j], 1]:
-                    bboxs[mask[i, j], 1] = j
-                if j + 1 > bboxs[mask[i, j], 3]:
-                    bboxs[mask[i, j], 3] = j + 1
-
-    keep = labels[:, 1] == 1
-    labels = labels[keep, 0]
-    bboxs = bboxs[keep, :]
-    return labels, bboxs[:, :]
 
 # atl = create_affine_transforms(combs, np.array((10,10), dtype=np.float32))
 
