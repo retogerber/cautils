@@ -240,7 +240,7 @@ def compose_affine_combinations(
             combs[:,6] = np.random.normal((shear_lower+shear_upper)/2, (shear_upper-shear_lower)/4, size=n)
     return combs
 
-def get_random_mask(mask, pad=None, atl=None, label=None, bbox=None, centers=None, seed=0):
+def get_random_mask(mask, pad=None, atl=None, label=None, bbox=None, centers=None, seed=0, affine_options={}):
     if pad is None:
         # create extrem cases of affine transformations to estimate padding
         pad = get_padding(mask, create_affine_transforms(compose_affine_combinations(translation_steps=2, rotation_steps=2, scale_steps=2, shear_steps=2)))
@@ -259,7 +259,7 @@ def get_random_mask(mask, pad=None, atl=None, label=None, bbox=None, centers=Non
     
     np.random.seed(seed)
     if atl is None:
-        combs = compose_affine_combinations(n=len(label))
+        combs = compose_affine_combinations(n=len(label), **affine_options)
         atl = create_affine_transforms(combs)
     perml = np.random.permutation(len(label))
 
@@ -307,7 +307,7 @@ def get_random_masks(mask, n=2, pad=None, affine_options={}, fast=False):
 
     masks = np.empty((n,mask.shape[0],mask.shape[1]), dtype=mask.dtype)
     for i in range(n):
-        masks[i,:,] = get_random_mask(mask, pad, atl, label, bbox, centers, seed=i)
+        masks[i,:,] = get_random_mask(mask, pad, atl, label, bbox, centers, seed=i, affine_options=affine_options)
     return masks
 
 def get_cell_intensities(img, mask, names, cellids, aggr_type="mean"):
