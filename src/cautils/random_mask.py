@@ -101,7 +101,8 @@ def create_affine_transform(translate: np.float32, rotate: np.float32, scale: np
                         [0, scale[1]]], dtype=np.float32)
     A_shear = np.array([[1, shear[0]],
                         [shear[1], 1]], dtype=np.float32)
-    A = A_rot @ A_scale @ A_shear
+    # A = A_rot @ A_scale @ A_shear
+    A = A_rot @ A_shear @ A_scale
     at = AffineTransform(A, translate, center)
     return at
 
