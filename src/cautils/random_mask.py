@@ -230,13 +230,13 @@ def compose_affine_combinations(
             combs[:,5] = np.random.uniform(shear_lower, shear_upper, size=n)
             combs[:,6] = np.random.uniform(shear_lower, shear_upper, size=n)
         elif sampling_distribution == "normal":
-            combs[:,0] = np.random.normal((translation_lower+translation_upper)/2, (translation_upper-translation_lower)/4, size=translation_steps)
-            combs[:,1] = np.random.normal((translation_lower+translation_upper)/2, (translation_upper-translation_lower)/4, size=translation_steps)
-            combs[:,2] = np.random.normal((rotation_lower+rotation_upper)/2, (rotation_upper-rotation_lower)/4, size=rotation_steps)
-            combs[:,3] = np.random.normal((scale_lower+scale_upper)/2, (scale_upper-scale_lower)/4, size=scale_steps)
-            combs[:,4] = np.random.normal((scale_lower+scale_upper)/2, (scale_upper-scale_lower)/4, size=scale_steps)
-            combs[:,5] = np.random.normal((shear_lower+shear_upper)/2, (shear_upper-shear_lower)/4, size=shear_steps)
-            combs[:,6] = np.random.normal((shear_lower+shear_upper)/2, (shear_upper-shear_lower)/4, size=shear_steps)
+            combs[:,0] = np.random.normal((translation_lower+translation_upper)/2, (translation_upper-translation_lower)/4, size=n)
+            combs[:,1] = np.random.normal((translation_lower+translation_upper)/2, (translation_upper-translation_lower)/4, size=n)
+            combs[:,2] = np.random.normal((rotation_lower+rotation_upper)/2, (rotation_upper-rotation_lower)/4, size=n)
+            combs[:,3] = np.random.normal((scale_lower+scale_upper)/2, (scale_upper-scale_lower)/4, size=n)
+            combs[:,4] = np.random.normal((scale_lower+scale_upper)/2, (scale_upper-scale_lower)/4, size=n)
+            combs[:,5] = np.random.normal((shear_lower+shear_upper)/2, (shear_upper-shear_lower)/4, size=n)
+            combs[:,6] = np.random.normal((shear_lower+shear_upper)/2, (shear_upper-shear_lower)/4, size=n)
     return combs
 
 def get_random_mask(mask, pad=None, atl=None, label=None, bbox=None, centers=None, seed=0):
