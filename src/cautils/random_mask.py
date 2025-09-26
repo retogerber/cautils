@@ -256,7 +256,7 @@ def get_random_mask(mask, pad=None, atl=None, label=None, bbox=None, centers=Non
         l = label[i]
         b = bbox[i]
         submask = (mask[b[0]:b[2], b[1]:b[3]]==l).astype(np.uint8)
-        M = atl.transforms[i].get_matrix_c(centers[i,::-1])
+        M = atl.transforms[i].get_matrix_c(centers[i,:])
         submask = cv2.warpAffine(submask, M[:2,:], submask.shape[::-1])
         masker[b[0]:b[2], b[1]:b[3]][submask.astype(bool)] = l
     masker = cv2.morphologyEx(masker.astype(np.uint16), cv2.MORPH_CLOSE, np.ones((3,3), dtype=np.uint8))
@@ -422,7 +422,7 @@ def direct_affine_medians(mask, image, channel_names, n_iter=-1, sample_fraction
         b = bbox[i]
         submask = (mask[b[0]:b[2], b[1]:b[3]]==l).astype(np.uint8)
         cropped_img = image[:, b[0]:b[2], b[1]:b[3]]
-        Msc = atl.get_matrices_center(centers[i,::-1])
+        Msc = atl.get_matrices_center(centers[i,:])
         tmp_mean_intensities = np.empty((n_iters,image.shape[0]), dtype=float)
         for j in range(Msc.shape[0]):
             submask2 = cv2.warpAffine(submask, Msc[j,:2,:], submask.shape[::-1])
