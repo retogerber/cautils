@@ -169,6 +169,7 @@ def get_padding(mask,atl):
 
 def get_affine_options():
     return {
+        "sampling_distribution": "uniform",
         "translation_lower": -1.0, 
         "translation_upper": 1.0, 
         "translation_steps": 3,
@@ -186,6 +187,7 @@ def get_affine_options():
 
 def compose_affine_combinations(
     n=-1,
+    sampling_distribution="uniform",
     translation_lower=-1.0, 
     translation_upper=1.0, 
     translation_steps=3,
@@ -199,6 +201,7 @@ def compose_affine_combinations(
     shear_upper=0.1, 
     shear_steps=3
     ):
+    assert sampling_distribution in ["uniform","normal"], "Only uniform and normal sampling is implemented"
     if n<0:
         scale_x_perm = np.linspace(scale_lower, scale_upper, num=scale_steps)
         scale_y_perm = np.linspace(scale_lower, scale_upper, num=scale_steps)
@@ -207,7 +210,6 @@ def compose_affine_combinations(
         translate_y_perm = np.linspace(translation_lower, translation_upper, num=translation_steps)
         shear_x_perm = np.linspace(shear_lower, shear_upper, num=shear_steps)
         shear_y_perm = np.linspace(shear_lower, shear_upper, num=shear_steps)
-
         combs = np.array(list(product(
             translate_x_perm[:],
             translate_y_perm[:],
@@ -219,13 +221,22 @@ def compose_affine_combinations(
         )), dtype=np.float32)
     else:
         combs = np.empty((n,7), dtype=np.float32)
-        combs[:,0] = np.random.uniform(translation_lower, translation_upper, size=n)
-        combs[:,1] = np.random.uniform(translation_lower, translation_upper, size=n)
-        combs[:,2] = np.random.uniform(rotation_lower, rotation_upper, size=n)
-        combs[:,3] = np.random.uniform(scale_lower, scale_upper, size=n)
-        combs[:,4] = np.random.uniform(scale_lower, scale_upper, size=n)
-        combs[:,5] = np.random.uniform(shear_lower, shear_upper, size=n)
-        combs[:,6] = np.random.uniform(shear_lower, shear_upper, size=n)
+        if sampling_distribution == "uniform":
+            combs[:,0] = np.random.uniform(translation_lower, translation_upper, size=n)
+            combs[:,1] = np.random.uniform(translation_lower, translation_upper, size=n)
+            combs[:,2] = np.random.uniform(rotation_lower, rotation_upper, size=n)
+            combs[:,3] = np.random.uniform(scale_lower, scale_upper, size=n)
+            combs[:,4] = np.random.uniform(scale_lower, scale_upper, size=n)
+            combs[:,5] = np.random.uniform(shear_lower, shear_upper, size=n)
+            combs[:,6] = np.random.uniform(shear_lower, shear_upper, size=n)
+        elif sampling_distribution == "normal":
+            combs[:,0] = np.random.normal((translation_lower+translation_upper)/2, (translation_upper-translation_lower)/4, size=translation_steps)
+            combs[:,1] = np.random.normal((translation_lower+translation_upper)/2, (translation_upper-translation_lower)/4, size=translation_steps)
+            combs[:,2] = np.random.normal((rotation_lower+rotation_upper)/2, (rotation_upper-rotation_lower)/4, size=rotation_steps)
+            combs[:,3] = np.random.normal((scale_lower+scale_upper)/2, (scale_upper-scale_lower)/4, size=scale_steps)
+            combs[:,4] = np.random.normal((scale_lower+scale_upper)/2, (scale_upper-scale_lower)/4, size=scale_steps)
+            combs[:,5] = np.random.normal((shear_lower+shear_upper)/2, (shear_upper-shear_lower)/4, size=shear_steps)
+            combs[:,6] = np.random.normal((shear_lower+shear_upper)/2, (shear_upper-shear_lower)/4, size=shear_steps)
     return combs
 
 def get_random_mask(mask, pad=None, atl=None, label=None, bbox=None, centers=None, seed=0):
@@ -262,18 +273,19 @@ def get_random_mask(mask, pad=None, atl=None, label=None, bbox=None, centers=Non
     masker = cv2.morphologyEx(masker.astype(np.uint16), cv2.MORPH_CLOSE, np.ones((3,3), dtype=np.uint8))
     return masker
 
-def get_random_masks(mask, n=2, affine_options={}):
+def get_random_masks(mask, n=2, pad=None, affine_options={}):
     # create extrem cases of affine transformations to estimate padding
 
-    tmp_affine_options = get_affine_options()
-    tmp_affine_options.update(affine_options)
-    tmp_affine_options.update({
-        "translation_steps": 2,
-        "rotation_steps": 2,
-        "scale_steps": 2,
-        "shear_steps": 2
-    })
-    pad = get_padding(mask, create_affine_transforms(compose_affine_combinations(**tmp_affine_options)))
+    if pad is None:
+        tmp_affine_options = get_affine_options()
+        tmp_affine_options.update(affine_options)
+        tmp_affine_options.update({
+            "translation_steps": 2,
+            "rotation_steps": 2,
+            "scale_steps": 2,
+            "shear_steps": 2
+        })
+        pad = get_padding(mask, create_affine_transforms(compose_affine_combinations(**tmp_affine_options)))
 
     label, bbox = bbox_label(mask)
     centers = np.stack(((bbox[:,2]-bbox[:,0]-1)/2, (bbox[:,3]-bbox[:,1]-1)/2), axis=1)
@@ -319,7 +331,7 @@ def get_cell_intensities(img, mask, names, cellids, aggr_type="mean"):
     df = df.with_columns(ObjectNumber=cellids)
     return df
 
-def affine_medians(mask, image, channel_names, n_iter=10, affine_options={}):
+def affine_medians(mask, image, channel_names, n_iter=10, pad=None, affine_options={}):
     """
     Compute median of mean intensities after applying random affine transformations to each cell. Does create complete random masks for n_iter times.
 
@@ -344,7 +356,7 @@ def affine_medians(mask, image, channel_names, n_iter=10, affine_options={}):
     labels, bbox = bbox_label(mask)
     df = get_cell_intensities(mask[np.newaxis,:,:], mask, ["ch"], labels, aggr_type="area")
 
-    masks = get_random_masks(mask, n=n_iter, affine_options=affine_options)
+    masks = get_random_masks(mask, n=n_iter, pad=pad, affine_options=affine_options)
     for m in range(masks.shape[0]):
         df1 = get_cell_intensities(image, masks[m,:,:], [f"{ch}_{m}" for ch in channel_names], labels)
         df = df.join(df1, on="ObjectNumber", how="left", suffix=f"_{iter}")
