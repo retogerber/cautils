@@ -247,7 +247,7 @@ def get_random_mask(mask, pad=None, atl=None, label=None, bbox=None, centers=Non
 
     if label is None or bbox is None or centers is None:
         label, bbox = bbox_label(mask)
-        centers = np.stack(((bbox[:,2]-bbox[:,0]-1)/2, (bbox[:,3]-bbox[:,1]-1)/2), axis=1)
+        centers = np.stack(((bbox[:,2]-bbox[:,0])/2, (bbox[:,3]-bbox[:,1])/2), axis=1)
         # account for padding
         centers[:,0]  = centers[:,0]+bbox[:,0]-np.clip(bbox[:,0]-pad,0, mask.shape[0])
         centers[:,1]  = centers[:,1]+bbox[:,1]-np.clip(bbox[:,1]-pad,0, mask.shape[1])
@@ -257,10 +257,10 @@ def get_random_mask(mask, pad=None, atl=None, label=None, bbox=None, centers=Non
         bbox[:,2] = np.clip(bbox[:,2]+pad,0, mask.shape[0])
         bbox[:,3] = np.clip(bbox[:,3]+pad,0, mask.shape[1])
     
+    np.random.seed(seed)
     if atl is None:
         combs = compose_affine_combinations(n=len(label))
         atl = create_affine_transforms(combs)
-    np.random.seed(seed)
     perml = np.random.permutation(len(label))
 
     masker = np.zeros_like(mask)
@@ -274,7 +274,7 @@ def get_random_mask(mask, pad=None, atl=None, label=None, bbox=None, centers=Non
     masker = cv2.morphologyEx(masker.astype(np.uint16), cv2.MORPH_CLOSE, np.ones((3,3), dtype=np.uint8))
     return masker
 
-def get_random_masks(mask, n=2, pad=None, affine_options={}):
+def get_random_masks(mask, n=2, pad=None, affine_options={}, fast=False):
     # create extrem cases of affine transformations to estimate padding
 
     if pad is None:
@@ -299,8 +299,11 @@ def get_random_masks(mask, n=2, pad=None, affine_options={}):
     bbox[:,2] = np.clip(bbox[:,2]+pad,0, mask.shape[0])
     bbox[:,3] = np.clip(bbox[:,3]+pad,0, mask.shape[1])
     
-    combs = compose_affine_combinations(n=len(label), **affine_options)
-    atl = create_affine_transforms(combs)
+    if fast:
+        combs = compose_affine_combinations(n=len(label), **affine_options)
+        atl = create_affine_transforms(combs)
+    else:
+        atl = None
 
     masks = np.empty((n,mask.shape[0],mask.shape[1]), dtype=mask.dtype)
     for i in range(n):
